@@ -1,0 +1,24 @@
+# Package files
+*.tar.gz
+*.zip
+*.tgz
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*~
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Local configuration
+config.local.env
+
+# Build directories
+build/
+dist/

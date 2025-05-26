@@ -1,0 +1,10 @@
+# OpenVSwitch bridge name
+# This is the bridge your Netmaker interface will be added to.
+# Ensure this bridge exists or will be created by the install script.
+BRIDGE_NAME=ovsbr0
+
+# Netmaker interface pattern
+# This pattern is used to identify the Netmaker network interface.
+# Typically, Netmaker interfaces are named like 'nm-...' or 'netmaker-...'.
+# Adjust if your Netmaker interface names follow a different pattern.
+NM_INTERFACE_PATTERN="nm-*"
