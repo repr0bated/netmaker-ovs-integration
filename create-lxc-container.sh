@@ -100,21 +100,48 @@ check_proxmox() {
     print_status "Proxmox VE detected: $pve_version"
 }
 
-# Check available templates
+# Check available templates and find best match
 check_templates() {
     print_info "Checking available LXC templates..."
     
-    local templates=$(pveam available --section turnkeylinux | grep -E "debian|ubuntu" | head -5 || echo "")
-    if [[ -n "$templates" ]]; then
-        print_info "Available templates:"
-        echo "$templates" | sed 's/^/    /'
+    # Update template list
+    pveam update
+    
+    # Look for Debian 12 templates first
+    local debian12_templates=$(pveam available | grep "debian-12-standard" | head -3 || echo "")
+    if [[ -n "$debian12_templates" ]]; then
+        print_info "Available Debian 12 templates:"
+        echo "$debian12_templates" | sed 's/^/    /'
+        
+        # Use the first available Debian 12 template
+        local latest_template=$(echo "$debian12_templates" | head -1 | awk '{print $2}')
+        if [[ -n "$latest_template" ]]; then
+            DEFAULT_TEMPLATE="$latest_template"
+            print_status "Selected template: $DEFAULT_TEMPLATE"
+        fi
+    else
+        # Fallback to any Debian template
+        local debian_templates=$(pveam available | grep -E "debian.*standard" | head -3 || echo "")
+        if [[ -n "$debian_templates" ]]; then
+            print_info "Available Debian templates:"
+            echo "$debian_templates" | sed 's/^/    /'
+            
+            local fallback_template=$(echo "$debian_templates" | head -1 | awk '{print $2}')
+            if [[ -n "$fallback_template" ]]; then
+                DEFAULT_TEMPLATE="$fallback_template"
+                print_warning "Using fallback template: $DEFAULT_TEMPLATE"
+            fi
+        else
+            print_error "No suitable Debian templates found"
+            exit 1
+        fi
     fi
     
-    # Check if our default template exists
-    if pveam list local | grep -q "$DEFAULT_TEMPLATE"; then
-        print_status "Template $DEFAULT_TEMPLATE is available"
+    # Check if template is already downloaded
+    if pveam list local 2>/dev/null | grep -q "$DEFAULT_TEMPLATE"; then
+        print_status "Template $DEFAULT_TEMPLATE is already available locally"
     else
-        print_warning "Template $DEFAULT_TEMPLATE not found - will attempt to download"
+        print_warning "Template $DEFAULT_TEMPLATE needs to be downloaded"
     fi
 }
 
@@ -228,20 +255,46 @@ get_configuration() {
     echo
 }
 
-# Check template availability
-check_template() {
-    print_header "Checking LXC Template"
+# Download template if needed
+download_template() {
+    print_header "Preparing LXC Template"
     echo "────────────────────────────────────────────────────────────────────────"
     
-    if pveam list local | grep -q "$TEMPLATE"; then
-        print_status "Template $TEMPLATE is available"
+    # Check if template is already available locally
+    if pveam list local 2>/dev/null | grep -q "$TEMPLATE"; then
+        print_status "Template $TEMPLATE is already available"
         return 0
-    else
-        print_error "Template $TEMPLATE not found in local storage"
-        print_info "Available templates:"
-        pveam list local | grep -E "debian|ubuntu" || echo "  No Debian/Ubuntu templates found"
-        exit 1
     fi
+    
+    print_info "Downloading template: $TEMPLATE"
+    
+    # Find appropriate storage for template download
+    local storage_pool="local"
+    
+    # Try to download to local storage first
+    if pveam download "$storage_pool" "$TEMPLATE" 2>/dev/null; then
+        print_status "Template downloaded successfully to $storage_pool"
+        return 0
+    fi
+    
+    # If local fails, try other storage pools
+    print_warning "Download to 'local' failed, trying other storage pools..."
+    local available_storages=$(pvesm status | grep -E "^[a-zA-Z]" | awk '{print $1}' | grep -v "Storage")
+    
+    for storage in $available_storages; do
+        print_info "Trying storage pool: $storage"
+        if pveam download "$storage" "$TEMPLATE" 2>/dev/null; then
+            print_status "Template downloaded successfully to $storage"
+            # Update template reference to include storage
+            TEMPLATE_WITH_STORAGE="$storage:vztmpl/$TEMPLATE"
+            return 0
+        fi
+    done
+    
+    print_error "Failed to download template $TEMPLATE to any storage pool"
+    print_info "Available storage pools:"
+    pvesm status | grep -E "^[a-zA-Z]" || echo "  No storage pools found"
+    exit 1
 }
 
 # Destroy existing container if requested
@@ -277,8 +330,9 @@ create_container() {
     print_header "Creating LXC Container"
     echo "────────────────────────────────────────────────────────────────────────"
     
-    # Build pct create command
-    local create_cmd="pct create $CONTAINER_ID local:vztmpl/$TEMPLATE.tar.zst"
+    # Build pct create command with proper template reference
+    local template_ref="${TEMPLATE_WITH_STORAGE:-local:vztmpl/$TEMPLATE}"
+    local create_cmd="pct create $CONTAINER_ID $template_ref"
     create_cmd="$create_cmd --hostname $HOSTNAME"
     create_cmd="$create_cmd --memory $MEMORY"
     create_cmd="$create_cmd --cores $CORES"
@@ -797,7 +851,7 @@ main() {
     print_header "Creating LXC Container"
     echo "════════════════════════════════════════════════════════════════════════"
     
-    check_template
+    download_template
     destroy_existing_container
     create_container
     start_container

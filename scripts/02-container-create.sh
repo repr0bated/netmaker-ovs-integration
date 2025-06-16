@@ -43,14 +43,46 @@ wait_for_network() {
 create_container() {
     print_info "Creating LXC container ID $CONTAINER_ID..."
     
-    # Check template availability
-    if ! pveam list local | grep -q "debian-12-standard_12.7-1_amd64.tar.zst"; then
-        print_error "Template debian-12-standard_12.7-1_amd64.tar.zst not found"
+    # Find and download Debian 12 template if needed
+    local template_name=""
+    
+    # Look for available Debian 12 templates
+    pveam update
+    local debian12_template=$(pveam available | grep "debian-12-standard" | head -1 | awk '{print $2}' || echo "")
+    
+    if [[ -n "$debian12_template" ]]; then
+        template_name="$debian12_template"
+        print_info "Found Debian 12 template: $template_name"
+        
+        # Download if not already available
+        if ! pveam list local 2>/dev/null | grep -q "$template_name"; then
+            print_info "Downloading template..."
+            if ! pveam download local "$template_name" 2>/dev/null; then
+                # Try other storage pools
+                local storage=$(pvesm status | grep -E "^[a-zA-Z]" | grep -v "local" | head -1 | awk '{print $1}' || echo "")
+                if [[ -n "$storage" ]]; then
+                    pveam download "$storage" "$template_name" || {
+                        print_error "Failed to download template"
+                        exit 1
+                    }
+                    template_ref="$storage:vztmpl/$template_name"
+                else
+                    print_error "No available storage for template download"
+                    exit 1
+                fi
+            else
+                template_ref="local:vztmpl/$template_name"
+            fi
+        else
+            template_ref="local:vztmpl/$template_name"
+        fi
+    else
+        print_error "No Debian 12 templates available"
         exit 1
     fi
     
     # Build container creation command
-    local create_cmd="pct create $CONTAINER_ID local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+    local create_cmd="pct create $CONTAINER_ID $template_ref"
     create_cmd="$create_cmd --hostname ghostbridge --memory 2048 --cores 2 --storage local-btrfs --rootfs local-btrfs:8"
     create_cmd="$create_cmd --net0 name=eth0,bridge=$BRIDGE_NAME,ip=$CONTAINER_IP/24,gw=10.0.0.1"
     
