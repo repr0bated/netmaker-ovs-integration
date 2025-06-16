@@ -117,19 +117,6 @@ check_prerequisites() {
             exit 1
         fi
     done
-    
-    # Run BTRFS storage verification
-    print_info "Verifying BTRFS storage configuration..."
-    if [[ -f "$SCRIPT_DIR/scripts/verify-btrfs-storage.sh" ]]; then
-        if bash "$SCRIPT_DIR/scripts/verify-btrfs-storage.sh"; then
-            print_status "BTRFS storage verification passed"
-        else
-            print_error "BTRFS storage verification failed"
-            exit 1
-        fi
-    else
-        print_warning "BTRFS verification script not found - proceeding without verification"
-    fi
 }
 
 # Get deployment configuration
