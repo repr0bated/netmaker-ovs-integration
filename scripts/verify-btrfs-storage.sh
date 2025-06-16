@@ -37,30 +37,42 @@ check_btrfs_tools() {
     print_status "btrfs tools available"
 }
 
-# Verify local-btrfs storage pool exists
+# Verify btrfs storage exists and has space
 verify_storage_pool() {
-    print_info "Verifying local-btrfs storage pool..."
+    print_info "Verifying btrfs storage availability..."
     
-    if ! pvesm status | grep -q "local-btrfs"; then
-        print_error "local-btrfs storage pool not found in Proxmox"
-        print_info "Available storage pools:"
-        pvesm status | grep -E "^(local|btrfs)" || echo "  No btrfs pools found"
-        
-        print_info "Creating local-btrfs storage pool..."
-        # Try to find btrfs filesystem
-        local btrfs_mount=$(mount | grep btrfs | head -1 | awk '{print $3}' || echo "")
-        
-        if [[ -n "$btrfs_mount" ]]; then
-            print_info "Found btrfs filesystem at: $btrfs_mount"
-            # Add to Proxmox storage configuration
-            pvesm add btrfs local-btrfs --path "$btrfs_mount/proxmox-storage" --content images,rootdir
-            print_status "local-btrfs storage pool created"
-        else
-            print_error "No btrfs filesystem found - manual configuration required"
-            return 1
+    # Find btrfs filesystems
+    local btrfs_mounts=$(btrfs filesystem show 2>/dev/null | grep -E "^Label:" -A1 | grep "uuid:" | awk '{print $NF}' | while read uuid; do
+        findmnt -n -o TARGET --source UUID="$uuid" 2>/dev/null
+    done | head -3)
+    
+    if [[ -z "$btrfs_mounts" ]]; then
+        print_error "No btrfs filesystems found"
+        print_info "Available filesystems:"
+        mount | grep -E "(ext4|xfs|btrfs)" | awk '{print $1, $3, $5}' || echo "  No supported filesystems found"
+        return 1
+    fi
+    
+    print_status "Found btrfs filesystems:"
+    for mount_point in $btrfs_mounts; do
+        local fs_label=$(btrfs filesystem label "$mount_point" 2>/dev/null || echo "unlabeled")
+        print_info "  $mount_point (label: $fs_label)"
+    done
+    
+    # Check if any mount point has enough space for containers
+    local sufficient_space=false
+    for mount_point in $btrfs_mounts; do
+        local available_gb=$(btrfs filesystem usage "$mount_point" 2>/dev/null | grep "Free (estimated):" | awk '{print $3}' | sed 's/GiB//' | cut -d'.' -f1 || echo "0")
+        if [[ $available_gb -gt 50 ]]; then
+            sufficient_space=true
+            print_status "Sufficient space available at $mount_point: ${available_gb}GB"
+            break
         fi
-    else
-        print_status "local-btrfs storage pool exists"
+    done
+    
+    if ! $sufficient_space; then
+        print_error "No btrfs filesystem has sufficient space (need 50GB+)"
+        return 1
     fi
 }
 
@@ -68,8 +80,10 @@ verify_storage_pool() {
 check_filesystem_health() {
     print_info "Checking btrfs filesystem health..."
     
-    # Get btrfs mount points
-    local btrfs_mounts=$(mount | grep btrfs | awk '{print $3}' | head -3)
+    # Get btrfs mount points using btrfs commands
+    local btrfs_mounts=$(btrfs filesystem show 2>/dev/null | grep -E "^Label:" -A1 | grep "uuid:" | awk '{print $NF}' | while read uuid; do
+        findmnt -n -o TARGET --source UUID="$uuid" 2>/dev/null
+    done)
     
     if [[ -z "$btrfs_mounts" ]]; then
         print_error "No btrfs filesystems found"
@@ -79,21 +93,26 @@ check_filesystem_health() {
     for mount_point in $btrfs_mounts; do
         print_info "Checking filesystem: $mount_point"
         
-        # Check filesystem status
-        if btrfs filesystem show "$mount_point" >/dev/null 2>&1; then
+        # Check filesystem status using btrfs scrub
+        local scrub_status=$(btrfs scrub status "$mount_point" 2>/dev/null | grep "Status:" | awk '{print $2}' || echo "unknown")
+        if [[ "$scrub_status" == "finished" ]] || [[ "$scrub_status" == "unknown" ]]; then
             print_status "Filesystem at $mount_point is healthy"
         else
-            print_warning "Issues detected with filesystem at $mount_point"
+            print_warning "Scrub status: $scrub_status for $mount_point"
         fi
         
-        # Check for errors
-        local error_count=$(btrfs device stats "$mount_point" 2>/dev/null | grep -v "0$" | wc -l || echo "0")
+        # Check for device errors using btrfs device stats
+        local error_count=$(btrfs device stats "$mount_point" 2>/dev/null | grep -vE "(write_io_errs|read_io_errs|flush_io_errs|corruption_errs|generation_errs).*0$" | wc -l || echo "0")
         if [[ "$error_count" -eq 0 ]]; then
             print_status "No device errors on $mount_point"
         else
             print_warning "$error_count device errors found on $mount_point"
-            btrfs device stats "$mount_point" | grep -v "0$" || true
+            btrfs device stats "$mount_point" 2>/dev/null | grep -vE ".*0$" || true
         fi
+        
+        # Check subvolume structure
+        local subvol_count=$(btrfs subvolume list "$mount_point" 2>/dev/null | wc -l || echo "0")
+        print_info "Subvolumes in $mount_point: $subvol_count"
     done
 }
 
@@ -101,41 +120,45 @@ check_filesystem_health() {
 monitor_storage_utilization() {
     print_info "Monitoring btrfs storage utilization..."
     
-    # Get storage pool info
-    local storage_info=$(pvesm status local-btrfs 2>/dev/null || echo "")
-    
-    if [[ -n "$storage_info" ]]; then
-        print_info "Proxmox storage pool status:"
-        echo "$storage_info" | column -t
-        echo
-    fi
-    
-    # Get btrfs filesystem usage
-    local btrfs_mounts=$(mount | grep btrfs | awk '{print $3}' | head -3)
+    # Get btrfs filesystem usage using native commands
+    local btrfs_mounts=$(btrfs filesystem show 2>/dev/null | grep -E "^Label:" -A1 | grep "uuid:" | awk '{print $NF}' | while read uuid; do
+        findmnt -n -o TARGET --source UUID="$uuid" 2>/dev/null
+    done)
     
     for mount_point in $btrfs_mounts; do
-        print_info "Btrfs usage for $mount_point:"
+        print_info "BTRFS usage for $mount_point:"
         
-        # Filesystem usage
-        local fs_usage=$(btrfs filesystem usage "$mount_point" 2>/dev/null || echo "Error reading usage")
-        echo "$fs_usage"
+        # Get filesystem usage details
+        btrfs filesystem usage "$mount_point" 2>/dev/null || {
+            print_warning "Cannot read usage for $mount_point"
+            continue
+        }
         echo
         
-        # Check free space percentage
-        local used_bytes=$(btrfs filesystem usage -b "$mount_point" 2>/dev/null | grep "Used:" | awk '{print $2}' | tr -d 'B' || echo "0")
-        local total_bytes=$(btrfs filesystem usage -b "$mount_point" 2>/dev/null | grep "Device size:" | awk '{print $3}' | tr -d 'B' || echo "1")
+        # Calculate usage percentage using btrfs fi show and usage
+        local device_size=$(btrfs filesystem usage "$mount_point" 2>/dev/null | grep "Device size:" | awk '{print $3}' | sed 's/[^0-9.]//g' || echo "0")
+        local used_space=$(btrfs filesystem usage "$mount_point" 2>/dev/null | grep "Used:" | awk '{print $2}' | sed 's/[^0-9.]//g' || echo "0")
         
-        if [[ "$used_bytes" -gt 0 && "$total_bytes" -gt 0 ]]; then
-            local usage_percent=$((used_bytes * 100 / total_bytes))
+        if [[ $(echo "$device_size > 0" | bc -l 2>/dev/null || echo "0") -eq 1 ]] && [[ $(echo "$used_space > 0" | bc -l 2>/dev/null || echo "0") -eq 1 ]]; then
+            local usage_percent=$(echo "scale=0; $used_space * 100 / $device_size" | bc -l 2>/dev/null || echo "0")
             
             if [[ $usage_percent -gt 90 ]]; then
-                print_error "Storage usage critical: ${usage_percent}% used"
+                print_error "Storage usage critical: ${usage_percent}% used (${used_space}GB/${device_size}GB)"
             elif [[ $usage_percent -gt 80 ]]; then
-                print_warning "Storage usage high: ${usage_percent}% used"
+                print_warning "Storage usage high: ${usage_percent}% used (${used_space}GB/${device_size}GB)"
             else
-                print_status "Storage usage normal: ${usage_percent}% used"
+                print_status "Storage usage normal: ${usage_percent}% used (${used_space}GB/${device_size}GB)"
             fi
+        else
+            print_info "Usage calculation not available for $mount_point"
         fi
+        
+        # Show subvolume quotas if enabled
+        if btrfs qgroup show "$mount_point" >/dev/null 2>&1; then
+            print_info "Quota groups configured:"
+            btrfs qgroup show "$mount_point" 2>/dev/null | head -10
+        fi
+        echo
     done
 }
 
@@ -150,13 +173,23 @@ check_container_requirements() {
     
     print_info "Estimated storage needed: ${total_needed_gb}GB for $containers_count containers"
     
-    # Check available space
-    local available_gb=$(pvesm status local-btrfs 2>/dev/null | tail -1 | awk '{print int($4/1024/1024)}' || echo "0")
+    # Check available space using btrfs commands
+    local max_available_gb=0
+    local btrfs_mounts=$(btrfs filesystem show 2>/dev/null | grep -E "^Label:" -A1 | grep "uuid:" | awk '{print $NF}' | while read uuid; do
+        findmnt -n -o TARGET --source UUID="$uuid" 2>/dev/null
+    done)
     
-    if [[ $available_gb -gt $total_needed_gb ]]; then
-        print_status "Sufficient space available: ${available_gb}GB free"
+    for mount_point in $btrfs_mounts; do
+        local available_gb=$(btrfs filesystem usage "$mount_point" 2>/dev/null | grep "Free (estimated):" | awk '{print $3}' | sed 's/GiB//' | cut -d'.' -f1 || echo "0")
+        if [[ $available_gb -gt $max_available_gb ]]; then
+            max_available_gb=$available_gb
+        fi
+    done
+    
+    if [[ $max_available_gb -gt $total_needed_gb ]]; then
+        print_status "Sufficient space available: ${max_available_gb}GB free"
     else
-        print_warning "Limited space: ${available_gb}GB available, ${total_needed_gb}GB needed"
+        print_warning "Limited space: ${max_available_gb}GB available, ${total_needed_gb}GB needed"
     fi
 }
 
@@ -173,23 +206,25 @@ ALERT_THRESHOLD=85
 
 check_usage() {
     local mount_point="$1"
-    local used_bytes=$(btrfs filesystem usage -b "$mount_point" 2>/dev/null | grep "Used:" | awk '{print $2}' | tr -d 'B' || echo "0")
-    local total_bytes=$(btrfs filesystem usage -b "$mount_point" 2>/dev/null | grep "Device size:" | awk '{print $3}' | tr -d 'B' || echo "1")
+    local device_size=$(btrfs filesystem usage "$mount_point" 2>/dev/null | grep "Device size:" | awk '{print $3}' | sed 's/[^0-9.]//g' || echo "0")
+    local used_space=$(btrfs filesystem usage "$mount_point" 2>/dev/null | grep "Used:" | awk '{print $2}' | sed 's/[^0-9.]//g' || echo "0")
     
-    if [[ "$used_bytes" -gt 0 && "$total_bytes" -gt 0 ]]; then
-        local usage_percent=$((used_bytes * 100 / total_bytes))
+    if [[ $(echo "$device_size > 0" | bc -l 2>/dev/null || echo "0") -eq 1 ]] && [[ $(echo "$used_space > 0" | bc -l 2>/dev/null || echo "0") -eq 1 ]]; then
+        local usage_percent=$(echo "scale=0; $used_space * 100 / $device_size" | bc -l 2>/dev/null || echo "0")
         
         if [[ $usage_percent -gt $ALERT_THRESHOLD ]]; then
-            echo "$(date): ALERT - $mount_point usage at ${usage_percent}%" | tee -a "$LOG_FILE"
+            echo "$(date): ALERT - $mount_point usage at ${usage_percent}% (${used_space}GB/${device_size}GB)" | tee -a "$LOG_FILE"
             # Could add email notification here
         fi
         
-        echo "$(date): $mount_point usage: ${usage_percent}%" >> "$LOG_FILE"
+        echo "$(date): $mount_point usage: ${usage_percent}% (${used_space}GB/${device_size}GB)" >> "$LOG_FILE"
+    else
+        echo "$(date): Cannot calculate usage for $mount_point" >> "$LOG_FILE"
     fi
 }
 
-# Monitor all btrfs filesystems
-for mount_point in $(mount | grep btrfs | awk '{print $3}'); do
+# Monitor all btrfs filesystems using btrfs commands
+for mount_point in $(btrfs filesystem show 2>/dev/null | grep -E "^Label:" -A1 | grep "uuid:" | awk '{print $NF}' | while read uuid; do findmnt -n -o TARGET --source UUID="$uuid" 2>/dev/null; done); do
     check_usage "$mount_point"
 done
 EOF
@@ -234,41 +269,53 @@ validate_deployment_readiness() {
     local checks_passed=0
     local total_checks=4
     
-    # Check 1: Storage pool exists
-    if pvesm status | grep -q "local-btrfs"; then
-        print_status "✓ local-btrfs storage pool available"
+    # Check 1: BTRFS filesystems exist
+    local btrfs_count=$(btrfs filesystem show 2>/dev/null | grep -c "^Label:" || echo "0")
+    if [[ $btrfs_count -gt 0 ]]; then
+        print_status "✓ BTRFS filesystems available ($btrfs_count found)"
         ((checks_passed++))
     else
-        print_error "✗ local-btrfs storage pool missing"
+        print_error "✗ No BTRFS filesystems found"
     fi
     
     # Check 2: Filesystem health
     local btrfs_healthy=true
-    for mount_point in $(mount | grep btrfs | awk '{print $3}' | head -3); do
+    local btrfs_mounts=$(btrfs filesystem show 2>/dev/null | grep -E "^Label:" -A1 | grep "uuid:" | awk '{print $NF}' | while read uuid; do
+        findmnt -n -o TARGET --source UUID="$uuid" 2>/dev/null
+    done | head -3)
+    
+    for mount_point in $btrfs_mounts; do
         if ! btrfs filesystem show "$mount_point" >/dev/null 2>&1; then
             btrfs_healthy=false
             break
         fi
     done
     
-    if $btrfs_healthy; then
+    if $btrfs_healthy && [[ -n "$btrfs_mounts" ]]; then
         print_status "✓ BTRFS filesystems healthy"
         ((checks_passed++))
     else
         print_error "✗ BTRFS filesystem issues detected"
     fi
     
-    # Check 3: Sufficient space
-    local available_gb=$(pvesm status local-btrfs 2>/dev/null | tail -1 | awk '{print int($4/1024/1024)}' || echo "0")
-    if [[ $available_gb -gt 50 ]]; then
-        print_status "✓ Sufficient storage space (${available_gb}GB)"
+    # Check 3: Sufficient space using btrfs commands
+    local max_available_gb=0
+    for mount_point in $btrfs_mounts; do
+        local available_gb=$(btrfs filesystem usage "$mount_point" 2>/dev/null | grep "Free (estimated):" | awk '{print $3}' | sed 's/GiB//' | cut -d'.' -f1 || echo "0")
+        if [[ $available_gb -gt $max_available_gb ]]; then
+            max_available_gb=$available_gb
+        fi
+    done
+    
+    if [[ $max_available_gb -gt 50 ]]; then
+        print_status "✓ Sufficient storage space (${max_available_gb}GB)"
         ((checks_passed++))
     else
-        print_error "✗ Insufficient storage space (${available_gb}GB)"
+        print_error "✗ Insufficient storage space (${max_available_gb}GB)"
     fi
     
     # Check 4: Monitoring active
-    if systemctl is-active --quiet btrfs-monitor.timer; then
+    if systemctl is-active --quiet btrfs-monitor.timer 2>/dev/null; then
         print_status "✓ BTRFS monitoring active"
         ((checks_passed++))
     else
