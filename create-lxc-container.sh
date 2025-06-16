@@ -187,15 +187,6 @@ get_configuration() {
     read -p "Gateway [$DEFAULT_GATEWAY]: " gateway
     GATEWAY="${gateway:-$DEFAULT_GATEWAY}"
     
-    print_question "Enter root password (leave empty for SSH key auth):"
-    read -s -p "Password: " rootpw
-    echo
-    if [[ -n "$rootpw" ]]; then
-        ROOT_PASSWORD="$rootpw"
-    else
-        ROOT_PASSWORD=""
-    fi
-    
     print_question "Enter memory size (MB):"
     read -p "Memory [$DEFAULT_MEMORY]: " memory
     MEMORY="${memory:-$DEFAULT_MEMORY}"
@@ -370,23 +361,14 @@ create_container() {
     create_cmd="$create_cmd --unprivileged 1"
     create_cmd="$create_cmd --onboot 1"
     
-    if [[ -n "$ROOT_PASSWORD" ]]; then
-        create_cmd="$create_cmd --password"
-    fi
-    
     print_info "Creating container with command:"
     print_info "$create_cmd"
     
-    if [[ -n "$ROOT_PASSWORD" ]]; then
-        # Use printf to provide password to avoid EOF issues
-        printf "%s\n" "$ROOT_PASSWORD" | $create_cmd
+    # Try SSH keys first, fallback to no authentication
+    if [[ -f /root/.ssh/authorized_keys ]]; then
+        $create_cmd --ssh-public-keys /root/.ssh/authorized_keys
     else
-        # Try SSH keys first, fallback to no authentication
-        if [[ -f /root/.ssh/authorized_keys ]]; then
-            $create_cmd --ssh-public-keys /root/.ssh/authorized_keys
-        else
-            $create_cmd
-        fi
+        $create_cmd
     fi
     
     if [[ $? -eq 0 ]]; then
@@ -846,6 +828,7 @@ show_completion() {
     echo
     
     echo -e "${CYAN}🔧 Container Management:${NC}"
+    echo "  • Set root password: pct set $CONTAINER_ID --password"
     echo "  • Enter container: pct enter $CONTAINER_ID"
     echo "  • Execute commands: pct exec $CONTAINER_ID -- <command>"
     echo "  • Stop container: pct stop $CONTAINER_ID"
