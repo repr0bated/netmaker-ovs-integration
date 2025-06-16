@@ -1,12 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-# Pre-Installation Cleanup and Conflict Detection Script
-# Ensures clean state before installing Netmaker OVS Integration with Obfuscation
+# Pre-Installation Network Reset Script
+# Resets network to clean state and installs dependencies before Netmaker OVS Integration
 
 SCRIPT_VERSION="1.0.0"
 LOG_FILE="/tmp/netmaker-ovs-preinstall-$(date +%Y%m%d-%H%M%S).log"
-BACKUP_DIR="/tmp/netmaker-ovs-backup-$(date +%Y%m%d-%H%M%S)"
 
 # Colors for output
 RED='\033[0;31m'
@@ -45,128 +44,41 @@ check_root() {
     fi
 }
 
-# Create backup directory
-create_backup_dir() {
-    info "Creating backup directory: $BACKUP_DIR"
-    mkdir -p "$BACKUP_DIR"/{config,systemd,network,logs}
-    log "Backup directory created at $BACKUP_DIR"
-}
-
-# System information gathering
-gather_system_info() {
-    info "Gathering system information..."
+# Install required dependencies
+install_dependencies() {
+    info "Installing required dependencies..."
     
-    {
-        echo "=== SYSTEM INFORMATION ==="
-        echo "Date: $(date)"
-        echo "Hostname: $(hostname)"
-        echo "OS: $(lsb_release -d 2>/dev/null | cut -f2 || cat /etc/os-release | grep PRETTY_NAME | cut -d'=' -f2 | tr -d '"')"
-        echo "Kernel: $(uname -r)"
-        echo "Architecture: $(uname -m)"
-        echo ""
-        
-        echo "=== NETWORK INTERFACES ==="
-        ip addr show
-        echo ""
-        
-        echo "=== BRIDGE INFORMATION ==="
-        brctl show 2>/dev/null || echo "bridge-utils not installed"
-        echo ""
-        
-        echo "=== OVS INFORMATION ==="
-        ovs-vsctl show 2>/dev/null || echo "OpenVSwitch not running or not installed"
-        echo ""
-        
-        echo "=== SYSTEMD SERVICES ==="
-        systemctl list-units --type=service --state=running | grep -E "(netmaker|ovs|bridge|network)"
-        echo ""
-        
-        echo "=== NETWORK ROUTES ==="
-        ip route show
-        echo ""
-        
-    } > "$BACKUP_DIR/system-info.txt"
+    # Update package cache
+    info "Updating package cache..."
+    apt-get update -qq || warning "Package cache update failed"
     
-    success "System information gathered"
-}
-
-# Check for existing installations
-check_existing_installations() {
-    info "Checking for existing Netmaker OVS installations..."
-    
-    local conflicts_found=false
-    
-    # Check for existing services
-    local services=(
-        "netmaker-ovs-bridge.service"
-        "netmaker-obfuscation-daemon.service"
-        "netmaker.service"
-        "netclient.service"
-    )
-    
-    for service in "${services[@]}"; do
-        if systemctl is-active --quiet "$service" 2>/dev/null; then
-            warning "Service $service is currently running"
-            conflicts_found=true
-        fi
-        
-        if systemctl is-enabled --quiet "$service" 2>/dev/null; then
-            warning "Service $service is enabled"
-            conflicts_found=true
-        fi
-    done
-    
-    # Check for existing files
-    local files=(
-        "/usr/local/bin/netmaker-ovs-bridge-add.sh"
-        "/usr/local/bin/netmaker-ovs-bridge-remove.sh" 
-        "/usr/local/bin/obfuscation-manager.sh"
-        "/etc/netmaker/ovs-config"
-        "/etc/systemd/system/netmaker-ovs-bridge.service"
-        "/etc/systemd/system/netmaker-obfuscation-daemon.service"
-    )
-    
-    for file in "${files[@]}"; do
-        if [ -f "$file" ]; then
-            warning "Existing file found: $file"
-            conflicts_found=true
-        fi
-    done
-    
-    # Check for existing state
-    if [ -d "/var/lib/netmaker" ]; then
-        warning "Netmaker state directory exists: /var/lib/netmaker"
-        conflicts_found=true
-    fi
-    
-    if [ "$conflicts_found" = true ]; then
-        warning "Existing installation detected - will clean up during process"
-        return 1
-    else
-        success "No existing installations found"
-        return 0
-    fi
-}
-
-# Check prerequisites
-check_prerequisites() {
-    info "Checking prerequisites..."
-    
-    local missing_deps=()
-    
-    # Check for required packages
+    # Required packages
     local required_packages=(
         "openvswitch-switch"
         "bridge-utils"
         "iproute2"
         "systemd"
+        "net-tools"
+        "dhcpcd5"
     )
     
     for package in "${required_packages[@]}"; do
         if ! dpkg -l | grep -q "^ii.*$package"; then
-            missing_deps+=("$package")
+            info "Installing $package..."
+            apt-get install -y "$package" || warning "Failed to install $package"
+        else
+            info "$package is already installed"
         fi
     done
+    
+    success "Dependencies installation completed"
+}
+
+# Check prerequisites are now available
+check_prerequisites() {
+    info "Verifying prerequisites..."
+    
+    local missing_deps=()
     
     # Check for required commands
     local required_commands=(
@@ -184,7 +96,7 @@ check_prerequisites() {
     done
     
     if [ ${#missing_deps[@]} -gt 0 ]; then
-        error "Missing prerequisites:"
+        error "Missing prerequisites after installation:"
         for dep in "${missing_deps[@]}"; do
             error "  - $dep"
         done
@@ -541,71 +453,44 @@ main() {
     
     # Check prerequisites first
     check_root
-    create_backup_dir
-    gather_system_info
     
-    # System checks
+    # Install dependencies
+    install_dependencies
+    
+    # Verify installation worked
     if ! check_prerequisites; then
-        error "Prerequisites check failed. Please install missing packages and retry."
+        error "Prerequisites installation failed. Please check the logs."
         exit 1
     fi
     
-    # Check for conflicts
-    local has_existing_install=false
-    local has_network_conflicts=false
-    
-    if ! check_existing_installations; then
-        has_existing_install=true
-    fi
-    
-    if ! check_network_conflicts; then
-        has_network_conflicts=true
-    fi
-    
-    # Check OVS status
-    if ! check_ovs_status; then
-        error "OpenVSwitch status check failed"
-        exit 1
-    fi
-    
-    # Backup existing configuration
-    backup_existing_config
-    
-    # Clean up if needed
-    if [ "$has_existing_install" = true ] || [ "$has_network_conflicts" = true ]; then
-        warning "Conflicts detected. Proceeding with cleanup..."
-        
-        if [ "$has_existing_install" = true ]; then
-            cleanup_existing_installation
+    # Run network reset
+    info "Running network reset..."
+    if [ -x "./network-reset.sh" ]; then
+        ./network-reset.sh
+        if [ $? -ne 0 ]; then
+            warning "Network reset completed with warnings"
+        else
+            success "Network reset completed successfully"
         fi
-        
-        if [ "$has_network_conflicts" = true ]; then
-            clean_network_state
-        fi
-    fi
-    
-    # Final validation
-    if ! validate_system_readiness; then
-        error "System readiness validation failed"
-        generate_report
+    else
+        error "network-reset.sh not found or not executable"
         exit 1
     fi
-    
-    # Generate final report
-    generate_report
     
     success "Pre-installation completed successfully!"
     echo ""
-    echo "========================================" 
+    echo "========================================"
     echo "SYSTEM IS READY FOR INSTALLATION"
     echo "========================================"
     echo ""
-    echo "Next steps:"
-    echo "1. Review the report: $BACKUP_DIR/pre-install-report.txt"
-    echo "2. Run the installation: sudo ./install.sh"
+    echo "Network has been reset to:"
+    echo "- eth0: DHCP configuration"
+    echo "- br0: Simple empty bridge"
+    echo "- All conflicting configurations removed"
+    echo "- Required dependencies installed"
     echo ""
-    echo "Logs available at: $LOG_FILE"
-    echo "Backups available at: $BACKUP_DIR"
+    echo "Next step: Run sudo ./install.sh"
+    echo "Log file: $LOG_FILE"
     echo ""
 }
 
