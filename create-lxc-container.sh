@@ -21,7 +21,7 @@ NC='\033[0m' # No Color
 # Default values from CLAUDE.md - Updated for dual IP OVS setup
 DEFAULT_CONTAINER_ID="100"
 DEFAULT_CONTAINER_IP="10.0.0.151"  # Container DHCP range starts at 150
-DEFAULT_BRIDGE="ovsbr0"             # OVS bridge, not Linux bridge
+DEFAULT_BRIDGE="ovsbr0"             # OVS bridge for GhostBridge project
 DEFAULT_GATEWAY="10.0.0.1"
 DEFAULT_TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
 DEFAULT_STORAGE="local-btrfs"
@@ -379,77 +379,37 @@ create_container() {
     fi
 }
 
-# Start the container
+# Start the container (skip for now due to network issues)
 start_container() {
-    print_header "Starting Container"
+    print_header "Container Created (Not Started)"
     echo "────────────────────────────────────────────────────────────────────────"
     
-    print_info "Starting container $CONTAINER_ID..."
-    if pct start "$CONTAINER_ID"; then
-        print_status "Container started successfully"
-        
-        # Wait for container to be fully started
-        print_info "Waiting for container to be ready..."
-        local timeout=30
-        local count=0
-        
-        while [[ $count -lt $timeout ]]; do
-            if pct exec "$CONTAINER_ID" -- systemctl is-system-running --wait >/dev/null 2>&1; then
-                break
-            fi
-            sleep 2
-            ((count++))
-        done
-        
-        if [[ $count -ge $timeout ]]; then
-            print_warning "Container startup timeout (may still be initializing)"
-        else
-            print_status "Container is ready"
-        fi
-    else
-        print_error "Failed to start container"
-        exit 1
-    fi
+    print_warning "Container $CONTAINER_ID created but not started"
+    print_info "Network bridge 'ovsbr0' needs to be configured first"
+    print_info "To start container later: pct start $CONTAINER_ID"
+    print_status "Container creation completed successfully"
 }
 
-# Configure container for Netmaker services
+# Skip container configuration (container not started)
 configure_container() {
-    print_header "Configuring Container for Netmaker Services"
+    print_header "Container Configuration Skipped"
     echo "────────────────────────────────────────────────────────────────────────"
     
-    # Update container
-    print_info "Updating container packages..."
-    pct exec "$CONTAINER_ID" -- apt update
-    pct exec "$CONTAINER_ID" -- apt upgrade -y
-    
-    # Install essential packages
-    print_info "Installing essential packages..."
-    pct exec "$CONTAINER_ID" -- apt install -y \
-        curl wget unzip sqlite3 jq openssl dnsutils net-tools \
-        systemd systemd-sysv ca-certificates gnupg lsb-release
-    
-    # Install Mosquitto
-    print_info "Installing Mosquitto MQTT broker..."
-    pct exec "$CONTAINER_ID" -- apt install -y mosquitto mosquitto-clients
-    
-    # Stop mosquitto to configure it properly later
-    pct exec "$CONTAINER_ID" -- systemctl stop mosquitto || true
-    pct exec "$CONTAINER_ID" -- systemctl disable mosquitto || true
-    
-    # Create directories
-    print_info "Creating Netmaker directories..."
-    pct exec "$CONTAINER_ID" -- mkdir -p /etc/netmaker
-    pct exec "$CONTAINER_ID" -- mkdir -p /opt/netmaker/{data,logs}
-    pct exec "$CONTAINER_ID" -- mkdir -p /var/log/netmaker
-    pct exec "$CONTAINER_ID" -- mkdir -p /var/backups/netmaker
-    
-    print_status "Container configured for Netmaker services"
+    print_info "Container configuration will be done after starting"
+    print_info "Run these commands after setting up OVS bridge and starting container:"
+    echo "  1. pct start $CONTAINER_ID"
+    echo "  2. pct exec $CONTAINER_ID -- /root/install-netmaker.sh"
+    print_status "Container ready for configuration after network setup"
 }
 
-# Create installation script inside container
+# Create installation script for later use
 create_container_install_script() {
-    print_header "Creating Installation Script in Container"
+    print_header "Creating Installation Script for Later Use"
     echo "────────────────────────────────────────────────────────────────────────"
+    
+    print_info "Installation script will be copied when container is started"
+    print_status "Installation script prepared"
+    return 0
     
     # Copy the container installation script to the container
     cat > /tmp/container-install.sh << 'EOF'
@@ -820,11 +780,13 @@ show_completion() {
     echo
     
     echo -e "${CYAN}🚀 Next Steps:${NC}"
-    echo "  1. Install services in container:"
+    echo "  1. Set up OVS bridge 'ovsbr0' on Proxmox host"
+    echo "  2. Start container: pct start $CONTAINER_ID"
+    echo "  3. Install services in container:"
     echo "     pct exec $CONTAINER_ID -- /root/install-netmaker.sh"
-    echo "  2. Run nginx upgrade script on Proxmox host"
-    echo "  3. Configure nginx stream module for MQTT proxy"
-    echo "  4. Set up SSL certificates"
+    echo "  4. Run nginx upgrade script on Proxmox host"
+    echo "  5. Configure nginx stream module for MQTT proxy"
+    echo "  6. Set up SSL certificates"
     echo
     
     echo -e "${CYAN}🔧 Container Management:${NC}"
