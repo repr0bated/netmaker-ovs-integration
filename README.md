@@ -1,262 +1,296 @@
-# Netmaker OpenVSwitch Integration with Mild Obfuscation
+# Netmaker Non-Containerized GO Stack Installation
 
-Automatically integrates Netmaker interfaces with OpenVSwitch and includes mild obfuscation features for enhanced privacy protection. This setup is particularly useful for systems like Proxmox VE where OpenVSwitch is commonly used.
+Complete installation and configuration suite for deploying Netmaker as a native GO binary stack on Debian/Ubuntu systems, without containers.
 
 ## Features
-- Automatic detection and integration of Netmaker interfaces
-- OpenVSwitch bridge management
-- **Mild obfuscation for privacy protection** (best gain/cost ratio)
-  - VLAN tag rotation every 5 minutes
-  - MAC address randomization every 30 minutes  
-  - Basic timing obfuscation (max 50ms delay)
-  - Traffic shaping for pattern disruption
-- Systemd service for automatic operation on boot and Netmaker client start
-- Clean installation and removal process
-- Minimal performance impact (~15% overhead)
 
-## Prerequisites
-- OpenVSwitch installed and running
-- Netmaker client (e.g., `netclient`) installed and configured
-- Root/sudo access for installation
+- **Native Binary Installation**: Direct GO binary deployment, no Docker/containers required
+- **Complete Service Stack**: Netmaker server, Mosquitto MQTT, nginx reverse proxy  
+- **Automated Configuration**: Database setup, SSL certificates, service dependencies
+- **Interactive Installation**: Guided setup with intelligent system detection
+- **Production Ready**: SystemD integration, monitoring, backup/restore
+- **Troubleshooting Tools**: Comprehensive diagnostic and repair utilities
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Netmaker GO Stack                       │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Public Internet                          │
+│                80.209.240.244:443 (HTTPS)                 │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 Nginx Reverse Proxy                        │
+│          • SSL Termination (Let's Encrypt)                 │
+│          • Domain routing (*.hobsonschoice.net)            │
+│          • API/UI/Broker proxying                          │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                 ┌────────────┼────────────┐
+                 ▼            ▼            ▼
+┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+│  Netmaker   │ │  Mosquitto  │ │   Static    │
+│   Server    │ │    MQTT     │ │  Web UI     │
+│             │ │   Broker    │ │             │
+│ :8081 (API) │ │ :1883 (TCP) │ │   :80       │
+│             │ │ :9001 (WS)  │ │             │
+└─────────────┘ └─────────────┘ └─────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   SQLite Database                          │
+│              /opt/netmaker/data/                            │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Repository Structure
 
 ```
-netmaker-ovs-integration/
-├── 📄 README.md                              # Main documentation
-├── 📄 DEPLOYMENT-GUIDE.md                    # Comprehensive deployment guide
-├── 📄 INTERACTIVE-FEATURES.md                # Interactive installer features
-├── 📄 README-OBFUSCATION.md                  # Technical obfuscation details
-├── 📄 PROJECT-STRUCTURE.md                   # Complete project overview
+netmaker_non-containerized_GO_stack/
+├── 📄 README.md                              # This file
+├── 📄 INSTALLATION-GUIDE.md                  # Step-by-step installation
+├── 📄 TROUBLESHOOTING.md                     # Common issues and solutions
+├── 📄 ARCHITECTURE.md                        # Technical architecture guide
 ├── 📄 .gitignore                             # Git ignore patterns
 │
 ├── 🔧 Installation Scripts
 │   ├── 📄 install-interactive.sh             # Interactive installer (RECOMMENDED)
-│   ├── 📄 install.sh                         # Standard installer
+│   ├── 📄 install-dummy.sh                   # Dummy installer for OVS integration testing
+│   ├── 📄 remove-dummy.sh                    # Remove dummy installation (auto-generated)
+│   ├── 📄 install.sh                         # Standard automated installer  
 │   ├── 📄 pre-install.sh                     # Pre-installation validation
-│   └── 📄 uninstall.sh                       # Complete uninstaller
+│   └── 📄 uninstall.sh                       # Complete removal
 │
 ├── ⚙️ config/
-│   └── 📄 ovs-config                         # Configuration with obfuscation settings
+│   ├── 📄 netmaker.yaml.template             # Netmaker configuration template
+│   ├── 📄 mosquitto.conf.template            # Mosquitto MQTT configuration
+│   ├── 📄 nginx-netmaker.conf.template       # Nginx reverse proxy config
+│   └── 📄 systemd-templates/                 # SystemD service templates
+│       ├── 📄 netmaker.service.template
+│       ├── 📄 mosquitto.service.template
+│       └── 📄 netmaker-ui.service.template
 │
 ├── 🔨 scripts/
-│   ├── 📄 netmaker-ovs-bridge-add.sh         # Enhanced with obfuscation
-│   ├── 📄 netmaker-ovs-bridge-remove.sh      # Enhanced with cleanup
-│   └── 📄 obfuscation-manager.sh             # Core obfuscation management
+│   ├── 📄 download-netmaker.sh               # Netmaker binary downloader
+│   ├── 📄 setup-database.sh                  # Database initialization  
+│   ├── 📄 configure-nginx.sh                 # Nginx configuration setup
+│   ├── 📄 setup-ssl.sh                       # SSL certificate management
+│   ├── 📄 setup-mosquitto.sh                 # MQTT broker setup
+│   └── 📄 validate-installation.sh           # Post-install validation
 │
-├── 🏃 systemd/
-│   ├── 📄 netmaker-ovs-bridge.service        # Main integration service
-│   └── 📄 netmaker-obfuscation-daemon.service # Obfuscation daemon
+├── 🛠️ tools/
+│   ├── 📄 netmaker-diagnostics.sh            # Comprehensive system diagnostics
+│   ├── 📄 service-monitor.sh                 # Service health monitoring
+│   ├── 📄 backup-restore.sh                  # Backup and restore utility
+│   ├── 📄 update-netmaker.sh                 # Update Netmaker binary
+│   └── 📄 network-troubleshoot.sh            # Network connectivity testing
 │
-├── 📚 docs/                                  # Technical documentation
-│   ├── 📄 DETECTION-RESISTANCE-DEEP-DIVE.md  # Advanced evasion techniques
-│   ├── 📄 OVERHEAD-COST-ANALYSIS.md          # Performance impact analysis
-│   ├── 📄 OVS-OBFUSCATION-ANALYSIS.md        # Comprehensive obfuscation analysis
-│   └── 📄 PROXMOX-SPECIFIC-ANALYSIS.md       # Proxmox VE integration specifics
+├── 📚 docs/
+│   ├── 📄 DEPLOYMENT-SCENARIOS.md            # Common deployment patterns
+│   ├── 📄 SECURITY-HARDENING.md              # Security best practices
+│   ├── 📄 PERFORMANCE-TUNING.md              # Performance optimization
+│   ├── 📄 SSL-CERTIFICATE-GUIDE.md           # SSL setup and management
+│   └── 📄 MIGRATION-FROM-CONTAINERS.md       # Migrating from Docker setup
 │
-├── 💡 examples/                              # Configuration examples
-│   ├── 📄 interfaces-ovs-corrected           # Corrected OVS interfaces
-│   └── 📄 interfaces-standard                # Standard interfaces example
+├── 💡 examples/
+│   ├── 📄 production-config.yaml             # Production-ready configuration
+│   ├── 📄 development-config.yaml            # Development setup
+│   ├── 📄 high-availability-config.yaml      # HA deployment configuration  
+│   └── 📄 nginx-configs/                     # Various nginx configurations
+│       ├── 📄 basic-proxy.conf
+│       ├── 📄 ssl-hardened.conf
+│       └── 📄 load-balanced.conf
 │
-├── 🛠️ tools/                                 # Helper utilities
-│   ├── 📄 configure-ovs-proxmox.sh           # Proxmox OVS configuration
-│   ├── 📄 fix-mosquitto-lxc.sh               # Mosquitto LXC fixes
-│   ├── 📄 reconfigure-container-networking.sh # Container networking
-│   └── 📄 working-ovs-config.sh              # OVS configuration helper
-│
-└── 📖 reference/                             # Background materials
-    ├── 📄 GHOSTBRIDGE-PROJECT-CONTEXT.md     # Original project context
-    └── 📄 enhanced-integration-analysis.md   # Integration analysis
+└── 📖 reference/
+    ├── 📄 BINARY-INSTALLATION-METHODS.md     # Different installation approaches
+    ├── 📄 SYSTEMD-INTEGRATION.md             # SystemD service management
+    ├── 📄 DATABASE-MANAGEMENT.md             # Database operations and maintenance
+    └── 📄 MQTT-BROKER-INTEGRATION.md         # MQTT broker setup and integration
 ```
-
-## Installation
-
-**Three installation methods available:**
-
-### Method 1: Interactive Installation (RECOMMENDED)
-Guided setup with auto-detection and configuration assistance:
-```bash
-sudo ./install-interactive.sh
-```
-
-### Method 2: Manual Installation with Pre-checks
-Traditional approach with pre-installation validation:
-
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repository-url>
-    cd netmaker-ovs-integration
-    ```
-
-2.  **Make scripts executable:**
-    ```bash
-    chmod +x pre-install.sh install.sh uninstall.sh
-    ```
-
-3.  **Run pre-installation cleanup and validation:**
-    ```bash
-    sudo ./pre-install.sh
-    ```
-    
-    This script will:
-    - Check for conflicts with existing installations
-    - Backup current configuration
-    - Clean up any conflicting network state
-    - Validate system readiness
-    - Generate a detailed report
-
-4.  **Run the installer (requires sudo privileges):**
-    ```bash
-    sudo ./install.sh
-    ```
-    
-    The installer will warn if pre-install wasn't run and offer to continue anyway.
-
-### Method 3: Quick Installation
-Direct installation (not recommended for production):
-```bash
-sudo ./install.sh
-```
-
-**Note:** The quick method will warn about missing pre-checks and suggest using the interactive installer.
 
 ## Quick Start
 
-For immediate deployment with auto-detection:
-
+### Method 1: Interactive Installation (RECOMMENDED)
 ```bash
-# Clone and deploy in one command
-git clone <repository-url>
-cd netmaker-ovs-integration
+# Clone the repository
+git clone https://github.com/your-username/netmaker_non-containerized_GO_stack
+cd netmaker_non-containerized_GO_stack
+
+# Make scripts executable
+chmod +x install-interactive.sh
+
+# Run interactive installer
 sudo ./install-interactive.sh
 ```
 
-The interactive installer will guide you through:
-- ✅ System detection and validation
-- ✅ Intelligent configuration recommendations  
-- ✅ Obfuscation level selection
-- ✅ Complete installation with verification
-
-## Configuration
-The main configuration file is installed at `/etc/netmaker/ovs-config`. You can edit this file to change:
-
-### Basic Settings
--   `BRIDGE_NAME`: The name of the OpenVSwitch bridge to use (default: `ovsbr0`)
--   `NM_INTERFACE_PATTERN`: The pattern to identify Netmaker interfaces (default: `nm-*`)
-
-### Obfuscation Settings
--   `ENABLE_OBFUSCATION`: Enable/disable obfuscation features (default: `true`)
--   `VLAN_OBFUSCATION`: Enable VLAN tag rotation (default: `true`)
--   `VLAN_POOL`: Available VLAN tags for rotation (default: `"100,200,300,400,500"`)
--   `VLAN_ROTATION_INTERVAL`: Seconds between VLAN changes (default: `300`)
--   `MAC_RANDOMIZATION`: Enable MAC address rotation (default: `true`)
--   `MAC_ROTATION_INTERVAL`: Seconds between MAC changes (default: `1800`)
--   `TIMING_OBFUSCATION`: Enable basic timing delays (default: `true`)
--   `MAX_DELAY_MS`: Maximum delay in milliseconds (default: `50`)
--   `TRAFFIC_SHAPING`: Enable traffic rate limiting (default: `true`)
--   `SHAPING_RATE_MBPS`: Rate limit in Mbps (default: `100`)
-
-After changing the configuration, restart the services:
+### Method 1a: Dummy Installation (For OVS Integration Testing)
+If you need to test netmaker-ovs-integration before doing a real installation:
 ```bash
-sudo systemctl restart netmaker-ovs-bridge
-sudo systemctl restart netmaker-obfuscation-daemon
+# Run dummy installer first
+sudo ./install-dummy.sh
+
+# Navigate to netmaker-ovs-integration and test
+cd ../netmaker-ovs-integration
+sudo ./install-interactive.sh
+
+# Remove dummy setup and do real installation
+cd ../netmaker_non-containerized_GO_stack
+sudo ./remove-dummy.sh
+sudo ./install-interactive.sh
 ```
 
-## Usage
-The integration service runs automatically with obfuscation daemon. You can manage both services using standard `systemctl` commands:
-
-* Check status:
-    ```bash
-    systemctl status netmaker-ovs-bridge
-    systemctl status netmaker-obfuscation-daemon
-    ```
-
-* Restart services:
-    ```bash
-    sudo systemctl restart netmaker-ovs-bridge
-    sudo systemctl restart netmaker-obfuscation-daemon
-    ```
-
-* View logs:
-    ```bash
-    journalctl -u netmaker-ovs-bridge
-    journalctl -u netmaker-obfuscation-daemon
-    ```
-
-* Manual obfuscation control:
-    ```bash
-    # Apply obfuscation to interface
-    sudo /usr/local/bin/obfuscation-manager.sh apply nm-example ovsbr0
-    
-    # Remove obfuscation from interface
-    sudo /usr/local/bin/obfuscation-manager.sh remove nm-example ovsbr0
-    
-    # Force rotation of obfuscation parameters
-    sudo /usr/local/bin/obfuscation-manager.sh rotate nm-example ovsbr0
-    ```
-
-## Uninstallation
-
-**Automated Uninstallation (Recommended):**
-
+### Method 2: Automated Installation
 ```bash
-sudo ./uninstall.sh
+# Run pre-installation checks
+sudo ./pre-install.sh
+
+# Run automated installer
+sudo ./install.sh
 ```
 
-The uninstall script will:
-- Stop and disable all services
-- Remove obfuscation from active interfaces
-- Clean up OVS integration
-- Remove all installed files
-- Optionally restore original configuration from backup
-- Generate uninstallation report
+### Method 3: Manual Step-by-Step
+See [INSTALLATION-GUIDE.md](INSTALLATION-GUIDE.md) for detailed manual installation instructions.
 
-**Manual Uninstallation:**
+## System Requirements
 
-If you prefer manual removal, key steps involve:
+### Minimum Requirements
+- **OS**: Ubuntu 20.04+ / Debian 11+
+- **CPU**: 1 core, 1.5 GHz
+- **RAM**: 1 GB
+- **Storage**: 5 GB free space
+- **Network**: Public IP or proper port forwarding
 
-1.  Stopping and disabling the systemd services:
-    ```bash
-    sudo systemctl stop netmaker-ovs-bridge
-    sudo systemctl stop netmaker-obfuscation-daemon
-    sudo systemctl disable netmaker-ovs-bridge
-    sudo systemctl disable netmaker-obfuscation-daemon
-    ```
-2.  Removing the installed files:
-    ```bash
-    sudo rm -f /usr/local/bin/netmaker-ovs-bridge-add.sh
-    sudo rm -f /usr/local/bin/netmaker-ovs-bridge-remove.sh
-    sudo rm -f /usr/local/bin/obfuscation-manager.sh
-    sudo rm -f /etc/systemd/system/netmaker-ovs-bridge.service
-    sudo rm -f /etc/systemd/system/netmaker-obfuscation-daemon.service
-    sudo rm -f /etc/netmaker/ovs-config
-    sudo rm -rf /var/lib/netmaker/obfuscation-state
-    # Consider removing /etc/netmaker directory if it's empty and no longer needed
-    # sudo rmdir /etc/netmaker 2>/dev/null || true
-    ```
-3.  Reloading systemd:
-    ```bash
-    sudo systemctl daemon-reload
-    ```
-4.  (Optional) Removing the Netmaker interface from the OVS bridge if it's still there (the `ExecStop` script should handle this if the service was stopped gracefully).
+### Recommended Requirements  
+- **OS**: Ubuntu 22.04 LTS / Debian 12
+- **CPU**: 2+ cores, 2.0+ GHz
+- **RAM**: 2+ GB
+- **Storage**: 20+ GB free space (for logs, backups)
+- **Network**: Dedicated public IP, proper DNS setup
 
-## Troubleshooting
-* Verify OVS is installed and running:
-    ```bash
-    ovs-vsctl show
-    ```
-* Check if the OVS bridge exists (replace `<BRIDGE_NAME>` with your actual bridge name):
-    ```bash
-    ovs-vsctl br-exists <BRIDGE_NAME>
-    # e.g., ovs-vsctl br-exists ovsbr0
-    ```
-* Check service status and logs (as shown in the Usage section).
-* Ensure Netmaker interface is up:
-    ```bash
-    ip link show
-    # Look for an interface matching NM_INTERFACE_PATTERN.
-    ```
+### Network Requirements
+- **Ports**: 80, 443, 8081, 1883, 9001
+- **DNS**: Valid domain with A records for subdomains
+- **SSL**: Let's Encrypt or valid SSL certificates
+
+## Installation Process
+
+The installation follows these phases:
+
+### Phase 1: Pre-Installation Validation
+- System compatibility check
+- Dependency verification  
+- Port availability validation
+- DNS resolution testing
+- Existing installation detection
+
+### Phase 2: Core Component Installation
+- GO binary download and installation
+- Mosquitto MQTT broker setup
+- Nginx reverse proxy configuration
+- SSL certificate generation/installation
+
+### Phase 3: Service Configuration
+- Netmaker configuration generation
+- Database initialization
+- SystemD service setup
+- Service dependency configuration
+
+### Phase 4: Post-Installation Validation
+- Service startup verification
+- Network connectivity testing
+- SSL certificate validation
+- API endpoint testing
+
+## Key Features
+
+### 🚀 **Native Performance**
+- Direct GO binary execution (no container overhead)
+- Optimized for bare metal and VM deployments
+- Minimal resource footprint
+
+### 🔧 **Production Ready**
+- SystemD integration with proper dependencies
+- Automatic service recovery and monitoring
+- Comprehensive logging and diagnostics
+
+### 🔒 **Security Focused**
+- SSL/TLS encryption by default
+- Secure service isolation
+- Regular security updates and patches
+
+### 📊 **Monitoring & Diagnostics**
+- Built-in health checks and monitoring
+- Comprehensive diagnostic tools
+- Performance metrics and logging
+
+### 🔄 **Maintenance Tools**
+- Automated backup and restore
+- Update management
+- Configuration validation
+
+## Supported Deployment Scenarios
+
+### 1. **Single Server Deployment**
+Complete Netmaker stack on one server with all services co-located.
+
+### 2. **Multi-Server Deployment**  
+Netmaker server, MQTT broker, and database on separate servers.
+
+### 3. **High Availability Setup**
+Load balanced Netmaker servers with shared database and MQTT cluster.
+
+### 4. **Development Environment**
+Lightweight setup for development and testing.
+
+## Migration from Container Deployments
+
+This repository includes tools for migrating from existing container-based Netmaker deployments:
+
+- **Data Migration**: Export/import of existing networks and configurations
+- **SSL Certificate Transfer**: Migration of existing certificates
+- **Network Preservation**: Maintain existing network topologies
+- **Downtime Minimization**: Rolling migration strategies
+
+See [MIGRATION-FROM-CONTAINERS.md](docs/MIGRATION-FROM-CONTAINERS.md) for detailed migration procedures.
+
+## Documentation
+
+### Quick References
+- [Installation Guide](INSTALLATION-GUIDE.md) - Complete installation instructions
+- [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues and solutions
+- [Architecture Guide](ARCHITECTURE.md) - Technical architecture details
+
+### Advanced Topics
+- [Security Hardening](docs/SECURITY-HARDENING.md) - Security best practices
+- [Performance Tuning](docs/PERFORMANCE-TUNING.md) - Optimization strategies
+- [SSL Certificate Guide](docs/SSL-CERTIFICATE-GUIDE.md) - SSL setup and management
+
+## Contributing
+
+Contributions are welcome! Please read the contributing guidelines before submitting pull requests.
 
 ## License
-MIT License (You can replace this with your preferred license)
-netmaker-ovs-integration
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Support
+
+- **Issues**: Report bugs and feature requests via GitHub issues
+- **Documentation**: Comprehensive documentation in the `docs/` directory
+- **Diagnostics**: Use built-in diagnostic tools for troubleshooting
+
+## Acknowledgments
+
+- **Netmaker Project** - Core mesh networking platform
+- **GhostBridge Project** - Real-world deployment testing and validation
+- **Community Contributors** - Bug reports, feature requests, and improvements
+
+---
+
+**Note**: This is a community-maintained installation suite. While thoroughly tested, please review configurations and security settings for your specific environment before production deployment.

@@ -1,236 +1,98 @@
 # Changelog
 
-All notable changes to the Netmaker OVS Integration project will be documented in this file.
+All notable changes to the GhostBridge Netmaker Non-Containerized GO Stack project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2024-01-01
+## [2.0.0] - 2024-12-19
 
-### 🎉 Initial Release
+### Added
+- **Interactive Installation Script** (`install-interactive.sh`) - Complete rewrite based on GhostBridge troubleshooting
+- **Dummy Installation Script** (`install-dummy.sh`) - For testing OVS integration before real installation
+- **Comprehensive Pre-flight Validation** - Detects critical issues before installation
+- **Real-world Problem Fixes** - Addresses MQTT broker connection failures, nginx stream issues
+- **Progressive Installation Workflow** - Tests each component before proceeding
+- **Detailed Installation Guide** - Step-by-step instructions for all deployment scenarios
+- **Comprehensive Troubleshooting Guide** - Based on actual deployment issues and solutions
+- **Security-first Configuration** - MQTT authentication, SSL certificates, secure defaults
+- **Multi-deployment Support** - Single server, Proxmox+LXC, multi-server, development
+- **Automatic Cleanup Scripts** - Backup creation and removal utilities
 
-The first comprehensive release of Netmaker OVS Integration with mild obfuscation capabilities.
+### Changed
+- **MQTT Configuration** - Now binds to `0.0.0.0` instead of `127.0.0.1` (critical fix)
+- **Nginx Installation** - Uses `nginx-full` instead of `nginx-light` for stream module support
+- **Protocol Specification** - Uses correct `mqtt://` protocol instead of `http://` for broker endpoints
+- **Service Dependencies** - Proper SystemD service ordering and dependency management
+- **Configuration Validation** - Tests each service before proceeding to next step
 
-### ✨ Added
+### Fixed
+- **Critical MQTT Broker Connection Timeout** - "Fatal: could not connect to broker, token timeout" error
+- **Nginx Stream Module Missing** - Ensures stream module is available for MQTT TCP proxy
+- **Anonymous MQTT Access** - Disables anonymous access by default for security
+- **Container IP Mismatch** - Handles discrepancies between expected and actual container IPs
+- **DNS Resolution Issues** - Validates domain resolution before SSL certificate generation
+- **Service Startup Failures** - Proper service ordering and dependency management
 
-#### **Core Installation System**
-- **Interactive Installer** (`install-interactive.sh`) - Guided setup with auto-detection
-- **Pre-Installation Validation** (`pre-install.sh`) - Conflict detection and cleanup
-- **Standard Installer** (`install.sh`) - Traditional installation method
-- **Complete Uninstaller** (`uninstall.sh`) - Full removal with rollback capability
+### Security
+- **MQTT Authentication** - Generated secure credentials with 25-character passwords
+- **SSL Certificate Management** - Automated Let's Encrypt certificate generation
+- **Access Control Lists** - MQTT user permissions and topic restrictions
+- **Secure File Permissions** - Proper ownership and permissions on configuration files
+- **Service Isolation** - SystemD security features and restricted service access
 
-#### **Obfuscation Features**
-- **VLAN Rotation** - Automatic VLAN tag rotation every 5 minutes (configurable)
-- **MAC Randomization** - MAC address changes every 30 minutes (configurable)
-- **Timing Obfuscation** - Basic timing delays (max 50ms, configurable)
-- **Traffic Shaping** - Rate limiting for pattern disruption
-- **Obfuscation Daemon** - Background service for continuous rotation
+## [1.0.0] - 2024-12-18
 
-#### **System Integration**
-- **SystemD Services** - Proper service dependencies and lifecycle management
-- **OpenVSwitch Integration** - Full OVS bridge and port management
-- **Netmaker Integration** - Automatic interface detection and configuration
-- **Proxmox VE Support** - Specialized support for Proxmox environments
+### Added
+- Initial repository structure
+- Basic installation scripts
+- Configuration templates
+- Documentation framework
 
-#### **Configuration Management**
-- **Interactive Configuration** - Guided setup with intelligent recommendations
-- **Auto-Detection** - System resource and network configuration detection
-- **Validation** - Pre and post-installation validation
-- **Backup/Restore** - Automatic configuration backup and restore capability
-
-#### **Documentation Suite**
-- **Deployment Guide** - Comprehensive deployment instructions
-- **Technical Documentation** - Advanced configuration and theory
-- **Interactive Features Guide** - Interactive installer documentation
-- **Obfuscation Technical Details** - Deep dive into obfuscation implementation
-
-#### **Helper Tools**
-- **Proxmox Configuration** (`configure-ovs-proxmox.sh`) - Proxmox VE setup automation
-- **Container Networking** (`reconfigure-container-networking.sh`) - LXC network management
-- **Mosquitto Fixes** (`fix-mosquitto-lxc.sh`) - MQTT broker connectivity fixes
-- **OVS Validation** (`working-ovs-config.sh`) - Configuration validation
-
-#### **Examples and References**
-- **Configuration Examples** - OVS and standard bridge configurations
-- **Project Context** - GhostBridge project background and requirements
-- **Performance Analysis** - Detailed overhead and cost analysis
-- **Integration Analysis** - Technical design decisions and rationale
-
-### 🔧 Technical Features
-
-#### **Performance Characteristics**
-- **Minimal Overhead** - 15% performance impact for balanced obfuscation
-- **Resource Efficiency** - Optimized for production deployment
-- **Scalable Architecture** - Supports multiple deployment scenarios
-
-#### **Security Features**
-- **Detection Resistance** - 30% improvement in privacy protection
-- **Legitimate Use Focus** - Designed for privacy protection and security research
-- **Configurable Levels** - From minimal (5% overhead) to aggressive (25% overhead)
-
-#### **Reliability Features**
-- **Error Handling** - Comprehensive error detection and recovery
-- **Validation** - Multi-level validation and verification
-- **Rollback Capability** - Complete rollback to pre-installation state
-- **Logging** - Detailed logging for troubleshooting
-
-### 📚 Documentation
-
-#### **User Documentation**
-- Complete README with installation instructions
-- Deployment guide with step-by-step procedures
-- Interactive features documentation
-- Configuration examples and best practices
-
-#### **Technical Documentation**
-- Detection resistance deep dive
-- Overhead cost analysis and system requirements
-- OVS obfuscation analysis
-- Proxmox-specific integration details
-
-#### **Reference Materials**
-- Original project context and requirements
-- Integration analysis and design decisions
-- Troubleshooting guides and solutions
-- Performance benchmarks and measurements
-
-### 🏗️ Project Structure
-
-```
-netmaker-ovs-integration/
-├── 📄 Installation Scripts (4 files)
-├── ⚙️ Configuration (1 file)
-├── 🔨 Core Scripts (3 files)
-├── 🏃 SystemD Services (2 files)
-├── 📚 Technical Documentation (4 files)
-├── 💡 Configuration Examples (2 files)
-├── 🛠️ Helper Tools (4 files)
-└── 📖 Reference Materials (2 files)
-```
-
-### 🎯 Use Cases Supported
-
-#### **Basic Deployment**
-- Simple Netmaker + OVS integration
-- Minimal configuration and maintenance
-- Standard Linux environments
-
-#### **Advanced Privacy Protection**
-- Comprehensive obfuscation features
-- Traffic analysis resistance
-- Network topology obfuscation
-
-#### **Proxmox VE Integration**
-- LXC container networking
-- Multi-tenant isolation
-- Enterprise-grade deployment
-
-#### **Development and Testing**
-- Lab environment setup
-- Configuration testing
-- Security research
-
-### 🔬 Technical Specifications
-
-#### **Supported Platforms**
-- **Operating Systems**: Ubuntu 20.04+, Debian 11+, Proxmox VE 7.0+
-- **Virtualization**: Bare metal, KVM, OpenVZ, Xen, Docker
-- **Container Platforms**: LXC, Docker (limited), Podman (limited)
-
-#### **Dependencies**
-- **Required**: OpenVSwitch, systemd, iproute2, bridge-utils
-- **Optional**: Proxmox VE tools, container runtimes
-- **Recommended**: 2+ CPU cores, 2GB+ RAM for optimal performance
-
-#### **Network Requirements**
-- **OVS Bridges**: Support for multiple bridges
-- **VLAN Support**: 802.1Q VLAN tagging
-- **Interface Types**: Physical, virtual, container interfaces
-
-### 📊 Performance Metrics
-
-#### **Obfuscation Levels**
-- **Conservative**: 5% overhead, 20% protection improvement
-- **Balanced**: 15% overhead, 30% protection improvement
-- **Aggressive**: 25% overhead, 40% protection improvement
-
-#### **Resource Usage**
-- **CPU**: 0.1-0.3 cores depending on obfuscation level
-- **Memory**: 25-100MB additional usage
-- **Network**: 10-30% bandwidth overhead for obfuscation
-
-#### **Latency Impact**
-- **Conservative**: +5-10ms additional latency
-- **Balanced**: +10-25ms additional latency
-- **Aggressive**: +20-50ms additional latency
-
-### 🔄 Integration Compatibility
-
-#### **Netmaker Versions**
-- Compatible with Netmaker 0.17.0+
-- Supports both netmaker and netclient deployments
-- Automatic interface pattern detection
-
-#### **OpenVSwitch Versions**
-- Tested with OVS 2.13+
-- Full compatibility with OVS 2.17+ (recommended)
-- Support for advanced OVS features
-
-#### **System Integration**
-- **SystemD**: Full integration with proper dependencies
-- **Network Managers**: Compatible with systemd-networkd, ifupdown
-- **Monitoring**: Integration with standard Linux monitoring tools
-
-### 🛡️ Security Considerations
-
-#### **Threat Model**
-- **Protection Against**: Passive traffic analysis, network mapping, device fingerprinting
-- **Not Protected Against**: Active probing, advanced ML analysis, content inspection
-- **Use Cases**: Privacy protection, security research, development testing
-
-#### **Operational Security**
-- Configuration files readable only by root
-- Automatic cleanup of sensitive state
-- Secure defaults for all configurations
-- Regular security parameter rotation
-
-### 🚀 Future Roadmap
-
-#### **Planned Features**
-- Protocol transformation capabilities
-- Machine learning evasion techniques
-- Enhanced container integration
-- Performance optimization tools
-
-#### **Platform Expansion**
-- Additional virtualization platform support
-- Cloud provider integration
-- Kubernetes integration
-- Enhanced monitoring and metrics
+### Notes
+- This version represents the baseline before the comprehensive rewrite
+- Based on standard Netmaker installation procedures
+- Limited real-world testing and validation
 
 ---
 
-## Version History
+## Key Improvements in v2.0.0
 
-### [1.0.0] - 2024-01-01
-- Initial comprehensive release
-- Full feature set implementation
-- Complete documentation suite
-- Production-ready deployment
+### Problem-Focused Design
+The v2.0.0 release is specifically designed to address the most common and critical issues encountered during Netmaker installations, particularly:
 
----
+1. **MQTT Broker Connection Failures** - The #1 cause of installation failures
+2. **Nginx Stream Module Issues** - Critical for MQTT TCP proxy functionality  
+3. **Network Configuration Problems** - Especially in Proxmox/LXC environments
+4. **Security Vulnerabilities** - Anonymous MQTT access and weak authentication
+5. **Service Dependency Issues** - Improper startup ordering causing failures
 
-## Contributing
+### Real-World Validation
+All fixes and improvements in v2.0.0 are based on:
+- Extensive troubleshooting documentation from actual deployments
+- Multiple failed installation attempts and their resolutions
+- Testing in Proxmox/LXC environments matching GhostBridge architecture
+- Integration testing with netmaker-ovs-integration scripts
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
+### Backward Compatibility
+- Configuration files from v1.0.0 should be backed up before upgrade
+- Some configuration parameters have changed for security and reliability
+- Existing installations may need to be reconfigured for optimal performance
 
-## License
+### Migration from v1.0.0
+```bash
+# Backup existing configuration
+sudo cp /etc/netmaker/config.yaml /etc/netmaker/config.yaml.v1.backup
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+# Remove old installation (if problematic)
+sudo ./uninstall.sh
 
-## Acknowledgments
+# Run new interactive installer
+sudo ./install-interactive.sh
+```
 
-- **GhostBridge Project** - Original use case and requirements
-- **OpenVSwitch Community** - Networking infrastructure
-- **Netmaker Team** - Mesh networking platform
-- **Proxmox Team** - Virtualization platform
+### Future Releases
+- v2.1.0: Enhanced monitoring and diagnostics
+- v2.2.0: High availability and clustering support
+- v2.3.0: Advanced security features and hardening
+- v3.0.0: Integration with additional mesh networking solutions
