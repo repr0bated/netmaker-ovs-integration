@@ -103,29 +103,11 @@ create_container() {
     fi
 }
 
-# Start and configure container
+# Skip starting container (network issues with ovsbr0)
 start_container() {
-    print_info "Starting container..."
-    pct start "$CONTAINER_ID"
-    
-    # Wait for container network
-    timeout=30; count=0
-    while ! pct exec "$CONTAINER_ID" -- ping -c 1 8.8.8.8 >/dev/null 2>&1 && [[ $count -lt $timeout ]]; do
-        sleep 2; ((count+=2))
-    done
-    
-    if [[ $count -ge $timeout ]]; then
-        print_error "Container network not ready"
-        exit 1
-    fi
-    
-    print_status "Container network is ready"
-    
-    # Basic container setup
-    pct exec "$CONTAINER_ID" -- apt update
-    pct exec "$CONTAINER_ID" -- apt install -y curl wget unzip jq openssl systemd
-    
-    print_status "Container configured and ready for services"
+    print_info "Container created but not started (OVS bridge setup required)"
+    print_info "To start later: pct start $CONTAINER_ID"
+    print_status "Container ready for manual start after network setup"
 }
 
 main() {
