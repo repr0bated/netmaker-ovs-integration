@@ -23,7 +23,7 @@ DEFAULT_CONTAINER_ID="100"
 DEFAULT_CONTAINER_IP="10.0.0.151"  # Container DHCP range starts at 150
 DEFAULT_BRIDGE="ovsbr0"             # OVS bridge, not Linux bridge
 DEFAULT_GATEWAY="10.0.0.1"
-DEFAULT_TEMPLATE="debian-12-standard"
+DEFAULT_TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
 DEFAULT_STORAGE="local-btrfs"
 DEFAULT_HOSTNAME="ghostbridge"
 DEFAULT_ROOTPW=""
@@ -228,28 +228,18 @@ get_configuration() {
     echo
 }
 
-# Download template if needed
-download_template() {
+# Check template availability
+check_template() {
     print_header "Checking LXC Template"
     echo "────────────────────────────────────────────────────────────────────────"
     
     if pveam list local | grep -q "$TEMPLATE"; then
         print_status "Template $TEMPLATE is available"
         return 0
-    fi
-    
-    print_info "Downloading template: $TEMPLATE"
-    
-    # Update available templates
-    pveam update
-    
-    # Download the template
-    if pveam download local "$TEMPLATE.tar.zst"; then
-        print_status "Template downloaded successfully"
     else
-        print_error "Failed to download template $TEMPLATE"
+        print_error "Template $TEMPLATE not found in local storage"
         print_info "Available templates:"
-        pveam available --section turnkeylinux | grep -E "debian|ubuntu"
+        pveam list local | grep -E "debian|ubuntu" || echo "  No Debian/Ubuntu templates found"
         exit 1
     fi
 }
@@ -807,7 +797,7 @@ main() {
     print_header "Creating LXC Container"
     echo "════════════════════════════════════════════════════════════════════════"
     
-    download_template
+    check_template
     destroy_existing_container
     create_container
     start_container

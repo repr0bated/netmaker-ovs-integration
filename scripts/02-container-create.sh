@@ -43,15 +43,14 @@ wait_for_network() {
 create_container() {
     print_info "Creating LXC container ID $CONTAINER_ID..."
     
-    # Download template if needed
-    if ! pveam list local | grep -q "debian-12-standard"; then
-        print_info "Downloading Debian template..."
-        pveam update
-        pveam download local debian-12-standard_12.2-1_amd64.tar.zst
+    # Check template availability
+    if ! pveam list local | grep -q "debian-12-standard_12.7-1_amd64.tar.zst"; then
+        print_error "Template debian-12-standard_12.7-1_amd64.tar.zst not found"
+        exit 1
     fi
     
     # Build container creation command
-    local create_cmd="pct create $CONTAINER_ID local:vztmpl/debian-12-standard_12.2-1_amd64.tar.zst"
+    local create_cmd="pct create $CONTAINER_ID local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
     create_cmd="$create_cmd --hostname ghostbridge --memory 2048 --cores 2 --storage local-btrfs --rootfs local-btrfs:8"
     create_cmd="$create_cmd --net0 name=eth0,bridge=$BRIDGE_NAME,ip=$CONTAINER_IP/24,gw=10.0.0.1"
     
