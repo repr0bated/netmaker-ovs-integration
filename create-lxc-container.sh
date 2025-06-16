@@ -343,10 +343,21 @@ create_container() {
     create_cmd="$create_cmd --net0 name=eth0,bridge=$BRIDGE,ip=$CONTAINER_IP,gw=$GATEWAY"
     
     # Add second network interface for dual IP setup
-    if [[ "$ENABLE_DUAL_IP" == "true" ]]; then
-        print_info "Configuring dual IP setup with direct public access"
-        create_cmd="$create_cmd --net1 name=eth1,bridge=$BRIDGE,ip=$PUBLIC_IP,gw=$PUBLIC_GATEWAY"
-        print_status "Added public interface: eth1 ($PUBLIC_IP)"
+    if [[ "$ENABLE_DUAL_IP" == "true" && -n "$PUBLIC_IP" ]]; then
+        # Validate public IP format
+        if [[ "$PUBLIC_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            print_info "Configuring dual IP setup with direct public access"
+            if [[ -n "$PUBLIC_GATEWAY" ]]; then
+                create_cmd="$create_cmd --net1 name=eth1,bridge=$BRIDGE,ip=$PUBLIC_IP/24,gw=$PUBLIC_GATEWAY"
+            else
+                create_cmd="$create_cmd --net1 name=eth1,bridge=$BRIDGE,ip=$PUBLIC_IP/24"
+            fi
+            print_status "Added public interface: eth1 ($PUBLIC_IP)"
+        else
+            print_error "Invalid public IP format: $PUBLIC_IP"
+            print_info "Disabling dual IP setup"
+            ENABLE_DUAL_IP="false"
+        fi
     fi
     
     create_cmd="$create_cmd --nameserver 8.8.8.8"
@@ -355,17 +366,19 @@ create_container() {
     create_cmd="$create_cmd --unprivileged 1"
     create_cmd="$create_cmd --onboot 1"
     
-    if [[ -n "$ROOT_PASSWORD" ]]; then
-        create_cmd="$create_cmd --password"
-    fi
-    
     print_info "Creating container with command:"
     print_info "$create_cmd"
     
     if [[ -n "$ROOT_PASSWORD" ]]; then
-        echo "$ROOT_PASSWORD" | $create_cmd
+        # Use here-string to provide password
+        $create_cmd --password <<< "$ROOT_PASSWORD"
     else
-        $create_cmd --ssh-public-keys /root/.ssh/authorized_keys 2>/dev/null || $create_cmd
+        # Try SSH keys first, fallback to no authentication
+        if [[ -f /root/.ssh/authorized_keys ]]; then
+            $create_cmd --ssh-public-keys /root/.ssh/authorized_keys
+        else
+            $create_cmd
+        fi
     fi
     
     if [[ $? -eq 0 ]]; then
