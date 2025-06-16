@@ -1,24 +1,75 @@
-# Package files
-*.tar.gz
-*.zip
-*.tgz
+# Netmaker OVS Integration - Git Ignore
 
 # Temporary files
 *.tmp
 *.temp
-*.swp
-*~
+*.log
+*.bak
+*.backup
 
-# OS-specific files
+# Installation artifacts
+/tmp/netmaker-ovs-*
+*.lock
+
+# System-specific files
 .DS_Store
 Thumbs.db
 
+# Runtime state
+/var/lib/netmaker/obfuscation-state
+/var/run/netmaker-obfuscation.lock
+
+# Configuration backups (keep examples)
+config/ovs-config.backup-*
+*.conf.backup-*
+
 # Log files
-*.log
+install-*.log
+pre-install-*.log
+uninstall-*.log
 
-# Local configuration
-config.local.env
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# Build directories
-build/
-dist/
+# Generated configuration files
+netmaker-ovs-config-*.conf
+
+# Test artifacts
+test-results/
+coverage/
+
+# Documentation builds
+docs/build/
+docs/_build/
+
+# Distribution files
+*.tar.gz
+*.zip
+*.deb
+*.rpm
+
+# Local development
+.env
+.local
+local-*
+
+# Sensitive information
+secrets/
+keys/
+certs/
+*.key
+*.pem
+*.p12
+
+# Performance test results
+benchmark-*.txt
+performance-*.csv
+
+# Temporary network configs
+interfaces.tmp
+routes.tmp
+bridges.tmp

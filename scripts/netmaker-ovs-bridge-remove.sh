@@ -43,6 +43,17 @@ else
         echo "Removing interface $NM_IFACE_REMOVE from OVS bridge $BRIDGE_NAME..."
         if sudo ovs-vsctl --if-exists del-port "$BRIDGE_NAME" "$NM_IFACE_REMOVE"; then
             echo "Interface $NM_IFACE_REMOVE removed from $BRIDGE_NAME."
+            
+            # Remove obfuscation if enabled
+            OBFS_SCRIPT="/usr/local/bin/obfuscation-manager.sh"
+            if [ -x "$OBFS_SCRIPT" ] && [ "${ENABLE_OBFUSCATION:-false}" = "true" ]; then
+                echo "Removing obfuscation from $NM_IFACE_REMOVE..."
+                if "$OBFS_SCRIPT" remove "$NM_IFACE_REMOVE" "$BRIDGE_NAME"; then
+                    echo "Obfuscation removed from $NM_IFACE_REMOVE"
+                else
+                    echo "Warning: Failed to remove obfuscation from $NM_IFACE_REMOVE" >&2
+                fi
+            fi
         else
             echo "Failed to remove interface $NM_IFACE_REMOVE from $BRIDGE_NAME (it might have already been removed)." >&2
         fi

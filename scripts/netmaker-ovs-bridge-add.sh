@@ -80,5 +80,16 @@ else
     echo "Failed to bring up interface $NM_IFACE." >&2
 fi
 
+# Apply obfuscation if enabled
+OBFS_SCRIPT="/usr/local/bin/obfuscation-manager.sh"
+if [ -x "$OBFS_SCRIPT" ] && [ "${ENABLE_OBFUSCATION:-false}" = "true" ]; then
+    echo "Applying mild obfuscation to $NM_IFACE..."
+    if "$OBFS_SCRIPT" apply "$NM_IFACE" "$BRIDGE_NAME"; then
+        echo "Obfuscation applied successfully to $NM_IFACE"
+    else
+        echo "Warning: Failed to apply obfuscation to $NM_IFACE" >&2
+    fi
+fi
+
 echo "Netmaker OVS bridge add script completed for $NM_IFACE."
 exit 0
