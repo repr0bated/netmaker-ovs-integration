@@ -16,15 +16,15 @@ ENABLE_OBFUSCATION=true
 # VLAN obfuscation - randomly rotate VLAN tags
 VLAN_OBFUSCATION=true
 VLAN_POOL="100,200,300,400,500"  # Available VLAN tags for rotation
-VLAN_ROTATION_INTERVAL=300        # Seconds between VLAN rotations (5 minutes)
+VLAN_ROTATION_INTERVAL=300        # Seconds between VLAN rotations
 
 # MAC address randomization
 MAC_RANDOMIZATION=true
-MAC_ROTATION_INTERVAL=1800        # Seconds between MAC changes (30 minutes)
+MAC_ROTATION_INTERVAL=1800        # Seconds between MAC changes
 
 # Basic timing obfuscation
 TIMING_OBFUSCATION=true
-MAX_DELAY_MS=50                   # Maximum delay in milliseconds (mild impact)
+MAX_DELAY_MS=50                   # Maximum delay in milliseconds
 
 # Traffic pattern obfuscation
 TRAFFIC_SHAPING=true

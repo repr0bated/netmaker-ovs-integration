@@ -6,8 +6,6 @@ set -euo pipefail
 CT="${1:?Usage: $0 <CTID>}"
 BRIDGE="ovsbr0"
 
-echo "➡️ Stopping container $CT..."
-pct stop "$CT"
 
 echo "🔁 Updating network interfaces..."
 # Safely extract net* lines; skip if none defined

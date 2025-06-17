@@ -10,10 +10,10 @@ echo "[*] Fetching Go version ${VERSION}..."
 curl -LO "$URL"
 
 echo "[*] Removing old Go installation..."
-sudo rm -rf /usr/local/go
+ rm -rf /usr/local/go
 
 echo "[*] Extracting to /usr/local ..."
-sudo tar -C /usr/local -xzf "$TARBALL"
+ tar -C /usr/local -xzf "$TARBALL"
 
 echo "[*] Cleaning up..."
 rm -f "$TARBALL"
