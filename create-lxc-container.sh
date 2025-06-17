@@ -18,6 +18,13 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Parse command line arguments
+AUTO_MODE=false
+if [[ "$1" == "--auto" ]]; then
+    AUTO_MODE=true
+    shift
+fi
+
 # Default values from CLAUDE.md - Updated for dual IP OVS setup
 DEFAULT_CONTAINER_ID="100"
 DEFAULT_CONTAINER_IP="10.0.0.151"  # Container DHCP range starts at 150
@@ -162,6 +169,42 @@ get_configuration() {
     print_header "LXC Container Configuration"
     echo "────────────────────────────────────────────────────────────────────────"
     
+    # Use defaults in auto mode
+    if [[ "$AUTO_MODE" == "true" ]]; then
+        print_info "Auto mode: Using default configuration values"
+        CONTAINER_ID="$DEFAULT_CONTAINER_ID"
+        HOSTNAME="$DEFAULT_HOSTNAME"
+        CONTAINER_IP="$DEFAULT_CONTAINER_IP/24"
+        BRIDGE="$DEFAULT_BRIDGE"
+        GATEWAY="$DEFAULT_GATEWAY"
+        MEMORY="$DEFAULT_MEMORY"
+        DISK="$DEFAULT_DISK"
+        CORES="$DEFAULT_CORES"
+        STORAGE="$DEFAULT_STORAGE"
+        TEMPLATE="$DEFAULT_TEMPLATE"
+        ENABLE_DUAL_IP="$DEFAULT_ENABLE_DUAL_IP"
+        PUBLIC_IP="$DEFAULT_PUBLIC_IP"
+        PUBLIC_IP_2="$DEFAULT_PUBLIC_IP_2"
+        PUBLIC_GATEWAY="$DEFAULT_PUBLIC_GATEWAY"
+        DESTROY_EXISTING=false
+        
+        # Check if container ID already exists in auto mode
+        if pct list | grep -q "^$CONTAINER_ID "; then
+            print_warning "Container ID $CONTAINER_ID already exists in auto mode"
+            # Find next available ID
+            local next_id=$((CONTAINER_ID + 1))
+            while pct list | grep -q "^$next_id "; do
+                ((next_id++))
+            done
+            CONTAINER_ID="$next_id"
+            print_info "Using next available container ID: $CONTAINER_ID"
+        fi
+        
+        # Print configuration and return
+        print_container_summary
+        return 0
+    fi
+    
     print_question "Enter container ID:"
     read -p "Container ID [$DEFAULT_CONTAINER_ID]: " container_id
     CONTAINER_ID="${container_id:-$DEFAULT_CONTAINER_ID}"
@@ -239,6 +282,11 @@ get_configuration() {
         print_info "Single IP mode - Netmaker will be proxied through nginx"
     fi
     
+    print_container_summary
+}
+
+# Print container configuration summary
+print_container_summary() {
     echo
     print_info "Container configuration:"
     echo "  • ID: $CONTAINER_ID"
@@ -330,7 +378,7 @@ create_container() {
     echo "────────────────────────────────────────────────────────────────────────"
     
     # Build pct create command with proper template reference
-    local template_ref="${TEMPLATE_WITH_STORAGE:-local:vztmpl/$TEMPLATE}"
+    local template_ref="${TEMPLATE_WITH_STORAGE:-local-btrfs:vztmpl/$TEMPLATE}"
     local create_cmd="pct create $CONTAINER_ID $template_ref"
     create_cmd="$create_cmd --hostname $HOSTNAME"
     create_cmd="$create_cmd --memory $MEMORY"

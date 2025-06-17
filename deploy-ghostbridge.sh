@@ -201,11 +201,12 @@ deploy_lxc_container() {
     local create_cmd="$SCRIPT_DIR/create-lxc-container.sh"
     
     if [[ "${CONFIG[interactive]}" == "false" ]]; then
-        # Run with default values (you could add non-interactive flags here)
+        # Run with default values using --auto flag
         print_info "Creating container with default configuration..."
+        create_cmd="$create_cmd --auto"
     fi
     
-    if bash "$create_cmd"; then
+    if bash $create_cmd; then
         print_status "✅ LXC container creation completed successfully"
         
         # Try to find the most recently created container
