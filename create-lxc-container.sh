@@ -347,7 +347,6 @@ create_container() {
     create_cmd="$create_cmd --hostname $HOSTNAME"
     create_cmd="$create_cmd --memory $MEMORY"
     create_cmd="$create_cmd --cores $CORES"
-    create_cmd="$create_cmd --storage $STORAGE"
     create_cmd="$create_cmd --rootfs $STORAGE:$DISK,mountoptions=compress=zstd"
     
     # Network configuration - private network always on eth0
