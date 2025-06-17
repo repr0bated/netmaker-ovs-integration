@@ -406,18 +406,37 @@ install_netmaker_in_container() {
 configure_services_in_container() {
     print_info "Configuring Mosquitto..."
     
+    # Generate MQTT credentials
+    local mqtt_username="netmaker"
+    local mqtt_password=$(openssl rand -base64 32 | tr -d "/+" | cut -c1-25)
+    
+    print_info "Generated MQTT credentials: $mqtt_username / $mqtt_password"
+    
+    # Store MQTT credentials
+    pct exec "${CONFIG[container_id]}" -- bash -c "echo 'MQTT_USERNAME=$mqtt_username' > /etc/netmaker/mqtt-credentials.env"
+    pct exec "${CONFIG[container_id]}" -- bash -c "echo 'MQTT_PASSWORD=$mqtt_password' >> /etc/netmaker/mqtt-credentials.env"
+    pct exec "${CONFIG[container_id]}" -- chmod 600 /etc/netmaker/mqtt-credentials.env
+    
     # Create necessary directories first
-    pct exec "${CONFIG[container_id]}" -- mkdir -p /var/lib/mosquitto /var/log/mosquitto
+    pct exec "${CONFIG[container_id]}" -- mkdir -p /var/lib/mosquitto /var/log/mosquitto /etc/mosquitto
     pct exec "${CONFIG[container_id]}" -- chown mosquitto:mosquitto /var/lib/mosquitto /var/log/mosquitto
     
-    # Create Mosquitto configuration
+    # Create MQTT user with password
+    pct exec "${CONFIG[container_id]}" -- mosquitto_passwd -c -b /etc/mosquitto/passwd "$mqtt_username" "$mqtt_password"
+    pct exec "${CONFIG[container_id]}" -- chown mosquitto:mosquitto /etc/mosquitto/passwd
+    
+    # Create Mosquitto configuration with authentication
     pct exec "${CONFIG[container_id]}" -- bash -c 'cat > /etc/mosquitto/mosquitto.conf << "MQTT_EOF"
 # GhostBridge Mosquitto Configuration
 pid_file /run/mosquitto/mosquitto.pid
 
+# Global settings
+allow_anonymous false
+password_file /etc/mosquitto/passwd
 persistence true
 persistence_location /var/lib/mosquitto/
 
+# Logging
 log_dest file /var/log/mosquitto/mosquitto.log
 log_type error
 log_type warning
@@ -426,13 +445,13 @@ log_type information
 log_timestamp true
 
 # MQTT TCP Listener
-listener 1883 0.0.0.0
-allow_anonymous true
+listener 1883
+bind_address 0.0.0.0
 
 # MQTT WebSocket Listener  
-listener 9001 0.0.0.0
+listener 9001
+bind_address 0.0.0.0
 protocol websockets
-allow_anonymous true
 
 # Connection settings
 max_packet_size 1048576
@@ -473,6 +492,8 @@ messagequeue:
   host: \"127.0.0.1\"
   port: 1883
   endpoint: \"mqtt://127.0.0.1:1883\"
+  username: \"$mqtt_username\"
+  password: \"$mqtt_password\"
 
 api:
   corsallowed: \"*\"
