@@ -62,9 +62,21 @@ else
     print_info "EMQX service start failed, creating custom config..."
 fi
 
-# Create absolutely minimal config using printf to avoid any character issues
-print_info "Creating minimal EMQX configuration..."
-pct exec "$CONTAINER_ID" -- printf 'listeners.tcp.default = 1883\nlisteners.ws.default = 8083\ndashboard.listeners.http = 18083\n' > /etc/emqx/emqx.conf
+# Create properly quoted config to handle special characters
+print_info "Creating properly quoted EMQX configuration..."
+pct exec "$CONTAINER_ID" -- bash -c 'cat > /etc/emqx/emqx.conf << "EOF"
+listeners.tcp.default.bind = "0.0.0.0:1883"
+listeners.ws.default.bind = "0.0.0.0:8083"
+listeners.ws.default.mqtt_path = "/mqtt"
+dashboard.listeners.http.bind = "18083"
+dashboard.default_username = "admin"
+dashboard.default_password = "public"
+authentication.1.mechanism = "password_based"
+authentication.1.backend = "built_in_database"
+authorization.no_match = "allow"
+log.file.default.level = "warning"
+log.file.default.file = "/var/log/emqx/emqx.log"
+EOF'
 
 # Test the minimal config
 print_info "Testing minimal configuration..."
