@@ -62,20 +62,51 @@ else
     print_info "EMQX service start failed, creating custom config..."
 fi
 
-# Create properly quoted config to handle special characters
-print_info "Creating properly quoted EMQX configuration..."
+# Create config using HOCON format to avoid period issues in key names
+print_info "Creating EMQX configuration using HOCON format..."
 pct exec "$CONTAINER_ID" -- bash -c 'cat > /etc/emqx/emqx.conf << "EOF"
-listeners.tcp.default.bind = "0.0.0.0:1883"
-listeners.ws.default.bind = "0.0.0.0:8083"
-listeners.ws.default.mqtt_path = "/mqtt"
-dashboard.listeners.http.bind = "18083"
-dashboard.default_username = "admin"
-dashboard.default_password = "public"
-authentication.1.mechanism = "password_based"
-authentication.1.backend = "built_in_database"
-authorization.no_match = "allow"
-log.file.default.level = "warning"
-log.file.default.file = "/var/log/emqx/emqx.log"
+node {
+  name = "emqx@127.0.0.1"
+  cookie = "ghostbridge_cluster"
+}
+
+listeners {
+  tcp {
+    default {
+      bind = "0.0.0.0:1883"
+      max_connections = 10240
+    }
+  }
+  ws {
+    default {
+      bind = "0.0.0.0:8083"
+      mqtt_path = "/mqtt"
+      max_connections = 10240
+    }
+  }
+}
+
+dashboard {
+  listeners {
+    http {
+      bind = "18083"
+    }
+  }
+  default_username = "admin"
+  default_password = "public"
+}
+
+authentication = [
+  {
+    mechanism = "password_based"
+    backend = "built_in_database"
+    user_id_type = "username"
+  }
+]
+
+authorization {
+  no_match = "allow"
+}
 EOF'
 
 # Test the minimal config
