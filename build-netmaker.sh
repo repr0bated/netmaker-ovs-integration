@@ -41,6 +41,8 @@ EOF
     print_info "Version: $SCRIPT_VERSION"
     print_info "Build Directory: $BUILD_DIR"
     print_info "Output Directory: $OUTPUT_DIR"
+    print_warning "CGO-enabled build - will take 3-8 minutes to complete"
+    print_info "Includes full SQLite database support for production use"
     echo
 }
 
@@ -302,9 +304,18 @@ build_netmaker() {
     
     print_info "Setting up Go module..."
     export GO111MODULE=on
-    export CGO_ENABLED=0
+    export CGO_ENABLED=1  # Enable CGO for SQLite support
     export GOOS=linux
     export GOARCH=amd64
+    
+    # Install build dependencies for CGO
+    print_info "Installing build dependencies for CGO..."
+    if command -v apt >/dev/null 2>&1; then
+        apt update -qq
+        apt install -y gcc libc6-dev sqlite3 libsqlite3-dev
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y gcc glibc-devel sqlite-devel
+    fi
     
     # EMQX-specific build environment
     export NETMAKER_MQTT_BROKER="emqx"
@@ -339,13 +350,61 @@ build_netmaker() {
     
     print_info "Build flags: ${LDFLAGS[*]}"
     
-    # Build with EMQX support tags
-    local BUILD_TAGS="emqx,ghostbridge,netmaker_pro"
+    # Verify CGO is working
+    print_info "Verifying CGO support..."
+    if ! go env CGO_ENABLED | grep -q "1"; then
+        print_error "CGO is not enabled - this will cause SQLite issues"
+        exit 1
+    fi
+    print_status "CGO is enabled for SQLite support"
     
-    if go build -tags "$BUILD_TAGS" -ldflags "${LDFLAGS[*]}" -o netmaker .; then
-        print_status "Netmaker binary built successfully"
+    # Show Go environment
+    print_info "Go build environment:"
+    go env | grep -E "(CGO_ENABLED|CC|GOOS|GOARCH)"
+    echo
+    
+    # Download dependencies with verbose output
+    print_info "Downloading Go dependencies (this may take a minute)..."
+    if go mod download -x; then
+        print_status "Dependencies downloaded successfully"
     else
-        print_error "Build failed"
+        print_error "Failed to download dependencies"
+        exit 1
+    fi
+    
+    # Build with EMQX support tags and CGO
+    local BUILD_TAGS="emqx,ghostbridge,netmaker_pro,sqlite_json"
+    print_info "Building with tags: $BUILD_TAGS"
+    print_info "LDFLAGS: ${LDFLAGS[*]}"
+    print_info "Starting Go build with CGO (this will take 3-8 minutes)..."
+    
+    local build_start=$(date +%s)
+    
+    # Build with progress indicators
+    if timeout 600 go build -v -tags "$BUILD_TAGS" -ldflags "${LDFLAGS[*]}" -o netmaker .; then
+        local build_end=$(date +%s)
+        local build_time=$((build_end - build_start))
+        print_status "Netmaker binary built successfully in ${build_time} seconds"
+        
+        # Verify the binary
+        if [[ -f "netmaker" ]]; then
+            local binary_size=$(ls -lh netmaker | awk '{print $5}')
+            print_info "Binary size: $binary_size"
+            
+            # Test CGO functionality
+            print_info "Testing CGO/SQLite functionality..."
+            if ./netmaker --version >/dev/null 2>&1; then
+                print_status "Binary is functional with CGO support"
+            else
+                print_warning "Binary may have issues - check manually"
+            fi
+        else
+            print_error "Binary file not found after build!"
+            exit 1
+        fi
+    else
+        print_error "Build failed or timed out (10 minute limit)"
+        print_info "Check Go compilation errors above"
         exit 1
     fi
     
@@ -410,6 +469,8 @@ show_completion() {
     echo "  • Copy to container: pct push <id> $OUTPUT_DIR/netmaker-latest /usr/local/bin/netmaker"
     echo "  • Run deploy script and choose 'Use existing binary'"
     echo "  • Test binary: $OUTPUT_DIR/netmaker-latest --version"
+    echo "  • CGO enabled: Full SQLite database support included"
+    echo "  • EMQX optimized: WebSocket port 8083, embedded credentials"
     echo
     
     echo -e "${CYAN}📁 Files:${NC}"
