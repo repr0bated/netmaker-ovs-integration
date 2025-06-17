@@ -27,13 +27,15 @@ DEFAULT_TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
 DEFAULT_STORAGE="local-btrfs"
 DEFAULT_HOSTNAME="ghostbridge"
 DEFAULT_ROOTPW=""
-DEFAULT_MEMORY="2048"
-DEFAULT_DISK="8"
+DEFAULT_MEMORY="8096"
+DEFAULT_DISK="20"
 DEFAULT_CORES="2"
 
 # Dual IP configuration (to be configured when second IP is available)
 DEFAULT_ENABLE_DUAL_IP="false"     # Set to true when second IP available
-DEFAULT_PUBLIC_IP=""               # Second public IP for direct container access
+DEFAULT_PUBLIC_IP="80.209.240.244"               # Main public IP for direct container access
+DEFAULT_PUBLIC_IP_2="80.209.240.243"             # Second public IP for additional services
+DEFAULT_PUBLIC_GATEWAY="80.209.240.129"
 
 # Utility functions
 print_status() {
@@ -223,12 +225,15 @@ get_configuration() {
     read -p "> " enable_dual_ip
     if [[ "$enable_dual_ip" =~ ^[Yy]$ ]]; then
         ENABLE_DUAL_IP="true"
-        print_question "Enter second public IP for direct container access:"
-        read -p "Public IP: " public_ip
-        PUBLIC_IP="$public_ip"
+        print_question "Enter main public IP for direct container access:"
+        read -p "Public IP [$DEFAULT_PUBLIC_IP]: " public_ip
+        PUBLIC_IP="${public_ip:-$DEFAULT_PUBLIC_IP}"
+        print_question "Enter second public IP (optional):"
+        read -p "Second IP [$DEFAULT_PUBLIC_IP_2]: " public_ip_2
+        PUBLIC_IP_2="${public_ip_2:-$DEFAULT_PUBLIC_IP_2}"
         print_question "Enter public gateway:"
-        read -p "Public Gateway: " public_gateway
-        PUBLIC_GATEWAY="$public_gateway"
+        read -p "Public Gateway [$DEFAULT_PUBLIC_GATEWAY]: " public_gateway
+        PUBLIC_GATEWAY="${public_gateway:-$DEFAULT_PUBLIC_GATEWAY}"
     else
         ENABLE_DUAL_IP="false"
         print_info "Single IP mode - Netmaker will be proxied through nginx"
@@ -242,7 +247,10 @@ get_configuration() {
     echo "  • Bridge: $BRIDGE"
     echo "  • Gateway: $GATEWAY"
     if [[ "$ENABLE_DUAL_IP" == "true" ]]; then
-        echo "  • Public IP: $PUBLIC_IP (direct access)"
+        echo "  • Main Public IP: $PUBLIC_IP (direct access)"
+        if [[ -n "$PUBLIC_IP_2" ]]; then
+            echo "  • Second Public IP: $PUBLIC_IP_2"
+        fi
         echo "  • Public Gateway: $PUBLIC_GATEWAY"
         echo "  • Mode: Dual IP (commercial setup)"
     else
@@ -351,9 +359,9 @@ create_container() {
         if [[ "$PUBLIC_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
             print_info "Configuring dual IP setup with direct public access"
             if [[ -n "$PUBLIC_GATEWAY" ]]; then
-                create_cmd="$create_cmd --net1 name=eth1,bridge=$BRIDGE,ip=$PUBLIC_IP/24,gw=$PUBLIC_GATEWAY"
+                create_cmd="$create_cmd --net1 name=eth1,bridge=$BRIDGE,ip=$PUBLIC_IP/25,gw=$PUBLIC_GATEWAY"
             else
-                create_cmd="$create_cmd --net1 name=eth1,bridge=$BRIDGE,ip=$PUBLIC_IP/24"
+                create_cmd="$create_cmd --net1 name=eth1,bridge=$BRIDGE,ip=$PUBLIC_IP/25"
             fi
             print_status "Added public interface: eth1 ($PUBLIC_IP)"
         else
