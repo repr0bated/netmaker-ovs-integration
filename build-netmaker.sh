@@ -44,50 +44,131 @@ EOF
     echo
 }
 
-# Check prerequisites
+# Install Go if needed
+install_go() {
+    print_header "Installing Go"
+    echo "────────────────────────────────────────────────────────────────────────"
+    
+    # Check if Go is already installed and compatible
+    if command -v go >/dev/null 2>&1; then
+        local go_version=$(go version | awk '{print $3}')
+        local go_major=$(echo $go_version | sed 's/go//' | cut -d. -f1)
+        local go_minor=$(echo $go_version | sed 's/go//' | cut -d. -f2)
+        
+        if [[ $go_major -gt 1 ]] || [[ $go_major -eq 1 && $go_minor -ge 19 ]]; then
+            print_status "Go is already installed: $go_version"
+            return 0
+        else
+            print_warning "Go version $go_version is too old, installing latest"
+        fi
+    else
+        print_info "Go not found, installing latest version"
+    fi
+    
+    # Detect architecture
+    local arch=$(uname -m)
+    local go_arch
+    case "$arch" in
+        x86_64) go_arch="amd64" ;;
+        aarch64|arm64) go_arch="arm64" ;;
+        armv7l) go_arch="armv6l" ;;
+        *) 
+            print_error "Unsupported architecture: $arch"
+            exit 1
+            ;;
+    esac
+    
+    # Get latest Go version
+    print_info "Fetching latest Go version..."
+    local latest_go=$(curl -s https://go.dev/VERSION?m=text | head -1)
+    if [[ -z "$latest_go" ]]; then
+        latest_go="go1.21.5"  # Fallback version
+        print_warning "Could not fetch latest version, using fallback: $latest_go"
+    else
+        print_info "Latest Go version: $latest_go"
+    fi
+    
+    # Download and install Go
+    local go_download_url="https://go.dev/dl/${latest_go}.linux-${go_arch}.tar.gz"
+    local go_install_dir="/usr/local"
+    local go_archive="/tmp/${latest_go}.linux-${go_arch}.tar.gz"
+    
+    print_info "Downloading Go from: $go_download_url"
+    if wget -O "$go_archive" "$go_download_url"; then
+        print_status "Go downloaded successfully"
+    else
+        print_error "Failed to download Go"
+        exit 1
+    fi
+    
+    # Remove old Go installation
+    if [[ -d "$go_install_dir/go" ]]; then
+        print_info "Removing old Go installation"
+        rm -rf "$go_install_dir/go"
+    fi
+    
+    # Extract new Go
+    print_info "Installing Go to $go_install_dir"
+    if tar -C "$go_install_dir" -xzf "$go_archive"; then
+        print_status "Go extracted successfully"
+        rm "$go_archive"
+    else
+        print_error "Failed to extract Go"
+        exit 1
+    fi
+    
+    # Add Go to PATH for current session
+    export PATH="$go_install_dir/go/bin:$PATH"
+    
+    # Update system PATH
+    if ! grep -q "/usr/local/go/bin" /etc/environment 2>/dev/null; then
+        print_info "Adding Go to system PATH"
+        echo 'PATH="/usr/local/go/bin:$PATH"' >> /etc/environment
+    fi
+    
+    # Add to profile files
+    for profile_file in /etc/profile /root/.bashrc /root/.profile; do
+        if [[ -f "$profile_file" ]] && ! grep -q "/usr/local/go/bin" "$profile_file"; then
+            echo 'export PATH="/usr/local/go/bin:$PATH"' >> "$profile_file"
+        fi
+    done
+    
+    # Verify installation
+    if command -v go >/dev/null 2>&1; then
+        local installed_version=$(go version)
+        print_status "Go installed successfully: $installed_version"
+    else
+        print_error "Go installation verification failed"
+        exit 1
+    fi
+    
+    echo
+}
+
+# Check and install prerequisites
 check_prerequisites() {
     print_header "Checking Prerequisites"
     echo "────────────────────────────────────────────────────────────────────────"
     
     # Check if running as root
-    if [[ $EUID -eq 0 ]]; then
-        print_warning "Running as root - this is fine but not required for building"
+    if [[ $EUID -ne 0 ]]; then
+        print_warning "Not running as root - may need sudo for Go installation"
+        print_info "Run with sudo for automatic Go installation"
     fi
     
-    # Check Go installation
-    if command -v go >/dev/null 2>&1; then
-        local go_version=$(go version | awk '{print $3}')
-        print_status "Go is installed: $go_version"
-        
-        # Check Go version (need 1.19+)
-        local go_major=$(echo $go_version | sed 's/go//' | cut -d. -f1)
-        local go_minor=$(echo $go_version | sed 's/go//' | cut -d. -f2)
-        
-        if [[ $go_major -gt 1 ]] || [[ $go_major -eq 1 && $go_minor -ge 19 ]]; then
-            print_status "Go version is compatible"
-        else
-            print_error "Go version 1.19+ required, found $go_version"
-            print_info "Install newer Go: https://golang.org/dl/"
-            exit 1
-        fi
+    # Install essential packages
+    print_info "Installing essential packages..."
+    if command -v apt >/dev/null 2>&1; then
+        apt update -qq
+        apt install -y wget curl git build-essential
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y wget curl git gcc gcc-c++ make
     else
-        print_error "Go is not installed"
-        print_info "Install Go: https://golang.org/dl/"
-        print_info "Or run: apt install golang-go (may be older version)"
-        exit 1
+        print_warning "Package manager not detected - ensure wget, curl, git are installed"
     fi
     
-    # Check git
-    if ! command -v git >/dev/null 2>&1; then
-        print_error "Git is not installed"
-        print_info "Install with: apt install git"
-        exit 1
-    fi
-    
-    # Check make
-    if ! command -v make >/dev/null 2>&1; then
-        print_warning "Make is not installed - will use go build directly"
-    fi
+    # Install Go
+    install_go
     
     print_status "Prerequisites check completed"
     echo
@@ -304,6 +385,19 @@ show_completion() {
 # Main execution
 main() {
     show_banner
+    
+    # Check if running as root for Go installation
+    if [[ $EUID -ne 0 ]]; then
+        print_warning "Not running as root - checking if Go is available"
+        if ! command -v go >/dev/null 2>&1; then
+            print_error "Go not found and not running as root"
+            print_info "Please run as root to auto-install Go, or install Go manually:"
+            print_info "  sudo $0"
+            print_info "  Or: wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz"
+            exit 1
+        fi
+    fi
+    
     check_prerequisites
     get_build_config
     prepare_build_dir

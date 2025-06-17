@@ -346,17 +346,22 @@ deploy_container_services() {
         print_warning "Some packages may have failed to install"
     fi
     
-    # Install Mosquitto
-    print_info "Installing Mosquitto MQTT broker..."
-    if pct exec "${CONFIG[container_id]}" -- apt install -y mosquitto mosquitto-clients; then
-        print_status "Mosquitto installed"
+    # Install EMQX MQTT broker
+    print_info "Installing EMQX MQTT broker..."
+    
+    # Add EMQX repository
+    pct exec "${CONFIG[container_id]}" -- bash -c 'curl -s https://assets.emqx.com/scripts/install-emqx-deb.sh | bash'
+    
+    # Install EMQX
+    if pct exec "${CONFIG[container_id]}" -- apt install -y emqx; then
+        print_status "EMQX installed"
         
-        # Stop and disable mosquitto for configuration
-        pct exec "${CONFIG[container_id]}" -- systemctl stop mosquitto || true
-        pct exec "${CONFIG[container_id]}" -- systemctl disable mosquitto || true
-        print_info "Mosquitto stopped for configuration"
+        # Stop and disable EMQX for configuration
+        pct exec "${CONFIG[container_id]}" -- systemctl stop emqx || true
+        pct exec "${CONFIG[container_id]}" -- systemctl disable emqx || true
+        print_info "EMQX stopped for configuration"
     else
-        print_warning "Mosquitto installation had issues"
+        print_warning "EMQX installation had issues"
     fi
     
     # Install Netmaker
@@ -466,7 +471,7 @@ download_prebuilt_netmaker() {
 
 # Configure services in container
 configure_services_in_container() {
-    print_info "Configuring Mosquitto..."
+    print_info "Configuring EMQX..."
     
     # Generate MQTT credentials
     local mqtt_username="netmaker"
@@ -480,51 +485,11 @@ configure_services_in_container() {
     pct exec "${CONFIG[container_id]}" -- chmod 600 /etc/netmaker/mqtt-credentials.env
     
     # Create necessary directories first
-    pct exec "${CONFIG[container_id]}" -- mkdir -p /var/lib/mosquitto /var/log/mosquitto /etc/mosquitto
-    pct exec "${CONFIG[container_id]}" -- chown mosquitto:mosquitto /var/lib/mosquitto /var/log/mosquitto
-    
-    # Create MQTT user with password
-    pct exec "${CONFIG[container_id]}" -- mosquitto_passwd -c -b /etc/mosquitto/passwd "$mqtt_username" "$mqtt_password"
-    pct exec "${CONFIG[container_id]}" -- chown mosquitto:mosquitto /etc/mosquitto/passwd
-    
-    # Create Mosquitto configuration with authentication
-    pct exec "${CONFIG[container_id]}" -- bash -c 'cat > /etc/mosquitto/mosquitto.conf << "MQTT_EOF"
-# GhostBridge Mosquitto Configuration
-pid_file /run/mosquitto/mosquitto.pid
-
-# Global settings
-allow_anonymous false
-password_file /etc/mosquitto/passwd
-persistence true
-persistence_location /var/lib/mosquitto/
-
-# Logging
-log_dest file /var/log/mosquitto/mosquitto.log
-log_type error
-log_type warning
-log_type notice
-log_type information
-log_timestamp true
-
-# MQTT TCP Listener
-listener 1883 0.0.0.0
-
-# MQTT WebSocket Listener  
-listener 9001 0.0.0.0
-protocol websockets
-
-# Global connection settings
-max_inflight_messages 20
-max_queued_messages 100
-retain_available true
-MQTT_EOF'
-    
-    # Test Mosquitto configuration
-    print_info "Testing Mosquitto configuration..."
-    if pct exec "${CONFIG[container_id]}" -- mosquitto -c /etc/mosquitto/mosquitto.conf -t; then
-        print_status "Mosquitto configuration is valid"
+    # Configure EMQX using dedicated script
+    if bash "$SCRIPT_DIR/configure-emqx.sh" "${CONFIG[container_id]}" "$mqtt_username" "$mqtt_password"; then
+        print_status "EMQX configured successfully"
     else
-        print_warning "Mosquitto configuration test failed - proceeding anyway"
+        print_warning "EMQX configuration had issues but continuing"
     fi
     
     print_info "Configuring Netmaker..."
@@ -573,8 +538,8 @@ NETMAKER_EOF"
 [Unit]
 Description=Netmaker Server
 After=network-online.target
-After=mosquitto.service
-Requires=mosquitto.service
+After=emqx.service
+Requires=emqx.service
 
 [Service]
 Type=simple
@@ -592,14 +557,14 @@ SERVICE_EOF'
     
     # Reload systemd and enable services (but don't start them yet)
     pct exec "${CONFIG[container_id]}" -- systemctl daemon-reload
-    pct exec "${CONFIG[container_id]}" -- systemctl enable mosquitto netmaker
+    pct exec "${CONFIG[container_id]}" -- systemctl enable emqx netmaker
     
     print_status "✅ All services installed and configured (not started)"
     print_info "Services are ready but not started - use manual startup for troubleshooting"
     
     # Installation complete - services can be started manually
     print_info "To start services manually:"
-    print_info "  1. pct exec ${CONFIG[container_id]} -- systemctl start mosquitto"
+    print_info "  1. pct exec ${CONFIG[container_id]} -- systemctl start emqx"
     print_info "  2. pct exec ${CONFIG[container_id]} -- systemctl start netmaker"
     
     return 0  # Exit here without starting services
