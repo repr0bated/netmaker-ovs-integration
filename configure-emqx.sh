@@ -37,60 +37,36 @@ pct exec "$CONTAINER_ID" -- chown emqx:emqx /var/lib/emqx /var/log/emqx
 
 # Create simple EMQX configuration (compatible with EMQX 5.x)
 print_info "Creating EMQX configuration..."
-pct exec "$CONTAINER_ID" -- bash -c 'cat > /etc/emqx/emqx.conf << "EOF"
-## Simple EMQX Configuration for GhostBridge Netmaker
-## Compatible with EMQX 5.x
 
-node {
-  name = "emqx@127.0.0.1"
-  cookie = "ghostbridge_emqx_cluster"
-}
+# Remove any existing config first
+pct exec "$CONTAINER_ID" -- rm -f /etc/emqx/emqx.conf
 
-cluster {
-  discovery_strategy = manual
-}
+# Create minimal working config to avoid syntax issues
+pct exec "$CONTAINER_ID" -- tee /etc/emqx/emqx.conf > /dev/null << 'EOF'
+## EMQX Configuration for GhostBridge
+node.name = emqx@127.0.0.1
+node.cookie = ghostbridge_emqx_cluster
 
-listeners.tcp.default {
-  bind = "0.0.0.0:1883"
-  max_connections = 10240
-}
+listeners.tcp.default.bind = 0.0.0.0:1883
+listeners.tcp.default.max_connections = 10240
 
-listeners.ws.default {
-  bind = "0.0.0.0:8083"
-  mqtt_path = "/mqtt"
-  max_connections = 10240
-}
+listeners.ws.default.bind = 0.0.0.0:8083
+listeners.ws.default.mqtt_path = /mqtt
+listeners.ws.default.max_connections = 10240
 
-authentication = [
-  {
-    mechanism = password_based
-    backend = built_in_database
-    user_id_type = username
-  }
-]
+dashboard.listeners.http.bind = 18083
+dashboard.default_username = admin
+dashboard.default_password = public
 
-authorization {
-  no_match = allow
-  cache {
-    enable = true
-  }
-}
+authentication.1.mechanism = password_based
+authentication.1.backend = built_in_database
+authentication.1.user_id_type = username
 
-dashboard {
-  listeners.http {
-    bind = 18083
-  }
-  default_username = "admin"
-  default_password = "public"
-}
+authorization.no_match = allow
 
-log {
-  file_handlers.default {
-    level = warning
-    file = "/var/log/emqx/emqx.log"
-  }
-}
-EOF'
+log.file.default.level = warning
+log.file.default.file = /var/log/emqx/emqx.log
+EOF
 
 # For EMQX 5.x, we'll configure users via API after startup instead of config file
 print_info "EMQX user configuration will be done via API after startup"
