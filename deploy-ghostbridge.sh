@@ -150,52 +150,32 @@ get_deployment_config() {
     echo
 }
 
-# Step 1: Setup OVS Bridge
-setup_ovs_bridge() {
-    print_header "Step 1: Setting up OVS Bridge"
+# Step 1: Reset Network to Proxmox Defaults
+reset_to_proxmox_defaults() {
+    print_header "Step 1: Resetting Network to Proxmox Defaults"
     echo "════════════════════════════════════════════════════════════════════════"
     
-    print_info "Setting up OVS bridge 'ovsbr0' for container networking..."
+    print_info "Resetting network configuration to clean Proxmox defaults..."
+    print_info "This ensures containers can be created and have basic connectivity"
     
-    # Check if OVS bridge script exists
-    if [[ -f "$SCRIPT_DIR/scripts/01-network-setup.sh" ]]; then
-        print_info "Running OVS network setup script..."
-        if bash "$SCRIPT_DIR/scripts/01-network-setup.sh"; then
-            print_status "✅ OVS bridge setup completed successfully"
-        else
-            print_error "❌ OVS bridge setup failed"
-            print_question "Do you want to continue anyway? [y/N]: "
-            read -r response
-            if [[ ! "$response" =~ ^[Yy]$ ]]; then
-                exit 1
+    # Check if simple network reset script exists
+    if [[ -f "$SCRIPT_DIR/simple-network-reset.sh" ]]; then
+        print_question "Run network reset to Proxmox defaults? [Y/n]: "
+        read -r reset_network
+        if [[ ! "$reset_network" =~ ^[Nn]$ ]]; then
+            print_info "Running simple network reset..."
+            if bash "$SCRIPT_DIR/simple-network-reset.sh"; then
+                print_status "✅ Network reset to Proxmox defaults completed"
+                print_info "Network is now: eth0 DHCP + vmbr0 Linux bridge"
+            else
+                print_warning "Network reset had issues but continuing..."
             fi
+        else
+            print_info "Skipping network reset - using current configuration"
         fi
     else
-        # Manual OVS bridge setup
-        print_info "Creating OVS bridge manually..."
-        
-        # Install OVS if needed
-        if ! command -v ovs-vsctl >/dev/null 2>&1; then
-            print_info "Installing Open vSwitch..."
-            apt update && apt install -y openvswitch-switch
-        fi
-        
-        # Create OVS bridge
-        if ! ovs-vsctl br-exists ovsbr0; then
-            print_info "Creating OVS bridge 'ovsbr0'..."
-            ovs-vsctl add-br ovsbr0
-            ip link set ovsbr0 up
-            print_status "OVS bridge 'ovsbr0' created"
-        else
-            print_status "OVS bridge 'ovsbr0' already exists"
-        fi
-        
-        # Configure bridge IP (if needed)
-        if ! ip addr show ovsbr0 | grep -q "10.0.0.1"; then
-            print_info "Configuring bridge IP..."
-            ip addr add 10.0.0.1/24 dev ovsbr0
-            print_status "Bridge IP configured: 10.0.0.1/24"
-        fi
+        print_warning "Simple network reset script not found"
+        print_info "Current network configuration will be used"
     fi
     
     echo
@@ -354,9 +334,61 @@ deploy_nginx_upgrade() {
     echo
 }
 
-# Step 6: Test connectivity between components
+# Step 6: Configure Final Network with Netmaker Integration
+configure_final_network() {
+    print_header "Step 6: Configuring Final Network with Netmaker Integration"
+    echo "════════════════════════════════════════════════════════════════════════"
+    
+    print_info "Now that Netmaker is installed, configuring advanced OVS networking..."
+    
+    # Check if OVS network setup script exists
+    if [[ -f "$SCRIPT_DIR/scripts/01-network-setup.sh" ]]; then
+        print_question "Configure advanced OVS networking with Netmaker integration? [Y/n]: "
+        read -r configure_ovs
+        if [[ ! "$configure_ovs" =~ ^[Nn]$ ]]; then
+            print_info "Running OVS network setup with Netmaker integration..."
+            if bash "$SCRIPT_DIR/scripts/01-network-setup.sh"; then
+                print_status "✅ Advanced OVS networking configured successfully"
+                
+                # Update container network configuration
+                print_info "Updating container network to use OVS bridge..."
+                print_warning "Container will need to be stopped and reconfigured"
+                print_question "Stop container and reconfigure networking? [Y/n]: "
+                read -r reconfig_container
+                if [[ ! "$reconfig_container" =~ ^[Nn]$ ]]; then
+                    pct stop "${CONFIG[container_id]}" || true
+                    
+                    # Update container network config to use ovsbr0
+                    pct set "${CONFIG[container_id]}" --net0 name=eth0,bridge=ovsbr0,ip="${CONFIG[container_ip]}/24",gw=10.0.0.1
+                    
+                    # Restart container
+                    if pct start "${CONFIG[container_id]}"; then
+                        print_status "Container reconfigured for OVS networking"
+                    else
+                        print_warning "Container start failed - may need manual intervention"
+                    fi
+                else
+                    print_info "Container network configuration skipped"
+                    print_info "Container is still using vmbr0 Linux bridge"
+                fi
+            else
+                print_warning "OVS network setup had issues"
+                print_info "Container will continue using basic Linux bridge (vmbr0)"
+            fi
+        else
+            print_info "Keeping basic Linux bridge networking (vmbr0)"
+        fi
+    else
+        print_warning "Advanced network setup script not found"
+        print_info "Container will continue using basic Linux bridge (vmbr0)"
+    fi
+    
+    echo
+}
+
+# Step 7: Test connectivity between components
 test_deployment() {
-    print_header "Step 6: Testing Deployment"
+    print_header "Step 7: Testing Deployment"
     echo "════════════════════════════════════════════════════════════════════════"
     
     print_info "Testing container connectivity..."
@@ -556,11 +588,12 @@ main() {
     echo
     
     # Execute deployment steps in correct order
-    setup_ovs_bridge
+    reset_to_proxmox_defaults
     deploy_lxc_container
     start_lxc_container
     deploy_container_services
     deploy_nginx_upgrade
+    configure_final_network
     test_deployment
     show_deployment_summary
     

@@ -21,7 +21,7 @@ NC='\033[0m' # No Color
 # Default values from CLAUDE.md - Updated for dual IP OVS setup
 DEFAULT_CONTAINER_ID="100"
 DEFAULT_CONTAINER_IP="10.0.0.151"  # Container DHCP range starts at 150
-DEFAULT_BRIDGE="ovsbr0"             # OVS bridge for GhostBridge project
+DEFAULT_BRIDGE="vmbr0"             # Linux bridge for initial setup (OVS configured later)
 DEFAULT_GATEWAY="10.0.0.1"
 DEFAULT_TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
 DEFAULT_STORAGE="local-btrfs"
@@ -391,10 +391,9 @@ start_container() {
     print_header "Container Created (Not Started)"
     echo "────────────────────────────────────────────────────────────────────────"
     
-    print_warning "Container $CONTAINER_ID created but not started"
-    print_info "Network bridge 'ovsbr0' needs to be configured first"
-    print_info "To start container later: pct start $CONTAINER_ID"
-    print_status "Container creation completed successfully"
+    print_status "Container $CONTAINER_ID created and ready to start"
+    print_info "Container uses vmbr0 Linux bridge for initial connectivity"
+    print_info "Advanced OVS networking will be configured after Netmaker installation"
 }
 
 # Skip container configuration (container not started)
