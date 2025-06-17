@@ -100,13 +100,11 @@ pct exec "$CONTAINER_ID" -- cat /etc/emqx/emqx.conf
 # Test the minimal config
 print_info "Testing minimal configuration..."
 if pct exec "$CONTAINER_ID" -- emqx chkconfig 2>/dev/null; then
-    print_status "Minimal config validated successfully"
+    print_status "✅ EMQX config validated successfully"
 else
-    print_warning "Config validation still failed - EMQX may have compatibility issues"
-    print_info "Will attempt to start EMQX anyway and configure via API"
-    
-    # Create empty config as last resort
-    pct exec "$CONTAINER_ID" -- touch /etc/emqx/emqx.conf
+    print_warning "❌ EMQX configuration test failed - check manually"
+    print_info "Config file was created successfully, proceeding anyway..."
+    print_info "EMQX will likely start despite validation warnings"
 fi
 
 # For EMQX 5.x, we'll configure users via API after startup instead of config file
