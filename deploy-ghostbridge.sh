@@ -279,40 +279,356 @@ start_lxc_container() {
     echo
 }
 
-# Step 4: Install services in container using pct enter
+# Step 4: Install services in container automatically
 deploy_container_services() {
     print_header "Step 4: Installing Services in Container"
     echo "════════════════════════════════════════════════════════════════════════"
     
-    print_info "Container services will be installed interactively"
-    print_info "You will be placed inside the container to run installation commands"
+    print_info "Installing Netmaker and Mosquitto services in container..."
     
-    print_question "Do you want to enter the container now to install services? [Y/n]: "
-    read -r enter_container
-    if [[ "$enter_container" =~ ^[Nn]$ ]]; then
-        print_info "Skipping container service installation"
-        print_info "To install later, run: pct enter ${CONFIG[container_id]}"
-        return 0
+    # Test container connectivity first
+    print_info "Testing container connectivity..."
+    if ! pct exec "${CONFIG[container_id]}" -- ping -c 2 8.8.8.8 >/dev/null 2>&1; then
+        print_warning "Container network connectivity test failed"
+        print_question "Continue with installation anyway? [y/N]: "
+        read -r continue_install
+        if [[ ! "$continue_install" =~ ^[Yy]$ ]]; then
+            print_info "Skipping container service installation"
+            return 0
+        fi
+    else
+        print_status "Container has internet connectivity"
     fi
     
-    print_info "Opening container shell..."
-    print_info "Run these commands inside the container:"
-    echo "  1. apt update && apt upgrade -y"
-    echo "  2. apt install -y curl wget unzip jq openssl mosquitto mosquitto-clients"
-    echo "  3. systemctl stop mosquitto && systemctl disable mosquitto"
-    echo "  4. Download and install Netmaker binary"
-    echo "  5. Configure Mosquitto and Netmaker"
-    echo "  6. Type 'exit' when done"
+    # Update package lists
+    print_info "Updating package lists..."
+    if pct exec "${CONFIG[container_id]}" -- apt update; then
+        print_status "Package lists updated"
+    else
+        print_warning "Package update had issues but continuing..."
+    fi
+    
+    # Install essential packages
+    print_info "Installing essential packages..."
+    if pct exec "${CONFIG[container_id]}" -- apt install -y curl wget unzip jq openssl systemd systemd-sysv ca-certificates gnupg lsb-release; then
+        print_status "Essential packages installed"
+    else
+        print_warning "Some packages may have failed to install"
+    fi
+    
+    # Install Mosquitto
+    print_info "Installing Mosquitto MQTT broker..."
+    if pct exec "${CONFIG[container_id]}" -- apt install -y mosquitto mosquitto-clients; then
+        print_status "Mosquitto installed"
+        
+        # Stop and disable mosquitto for configuration
+        pct exec "${CONFIG[container_id]}" -- systemctl stop mosquitto || true
+        pct exec "${CONFIG[container_id]}" -- systemctl disable mosquitto || true
+        print_info "Mosquitto stopped for configuration"
+    else
+        print_warning "Mosquitto installation had issues"
+    fi
+    
+    # Install Netmaker
+    print_info "Installing Netmaker..."
+    install_netmaker_in_container
+    
+    # Configure services
+    print_info "Configuring services..."
+    configure_services_in_container
+    
+    # Wait for services to stabilize
+    print_info "Waiting for services to stabilize..."
+    sleep 10
+    
+    # Configure Netmaker via API
+    print_info "Configuring Netmaker via API..."
+    configure_netmaker_api
+    
+    print_status "✅ Container services installation completed"
     echo
+}
+
+# Install Netmaker binary in container
+install_netmaker_in_container() {
+    print_info "Downloading and installing Netmaker binary..."
     
-    print_question "Press Enter to continue into container..."
-    read -r
+    # Create directories
+    pct exec "${CONFIG[container_id]}" -- mkdir -p /etc/netmaker /opt/netmaker/{data,logs} /var/log/netmaker
     
-    # Enter container interactively
-    pct enter "${CONFIG[container_id]}"
+    # Get latest Netmaker version and download
+    local netmaker_version=$(curl -s https://api.github.com/repos/gravitl/netmaker/releases/latest | jq -r .tag_name 2>/dev/null || echo "v0.21.0")
+    print_info "Installing Netmaker version: $netmaker_version"
     
-    print_status "✅ Returned from container - services installation completed"
-    echo
+    # Download Netmaker binary
+    local download_url="https://github.com/gravitl/netmaker/releases/download/${netmaker_version}/netmaker-linux-amd64"
+    if pct exec "${CONFIG[container_id]}" -- wget -O /tmp/netmaker "$download_url"; then
+        pct exec "${CONFIG[container_id]}" -- chmod +x /tmp/netmaker
+        pct exec "${CONFIG[container_id]}" -- mv /tmp/netmaker /usr/local/bin/netmaker
+        print_status "Netmaker binary installed"
+    else
+        print_warning "Netmaker download failed"
+        return 1
+    fi
+}
+
+# Configure services in container
+configure_services_in_container() {
+    print_info "Configuring Mosquitto..."
+    
+    # Create Mosquitto configuration
+    pct exec "${CONFIG[container_id]}" -- bash -c 'cat > /etc/mosquitto/mosquitto.conf << "MQTT_EOF"
+# GhostBridge Mosquitto Configuration
+listener 1883
+bind_address 0.0.0.0
+protocol mqtt
+allow_anonymous true
+
+listener 9001
+bind_address 0.0.0.0
+protocol websockets
+allow_anonymous true
+
+persistence true
+persistence_location /var/lib/mosquitto/
+
+log_dest file /var/log/mosquitto/mosquitto.log
+log_type error
+log_type warning
+log_type notice
+log_type information
+log_timestamp true
+
+max_packet_size 1048576
+keepalive_interval 60
+MQTT_EOF'
+    
+    # Set permissions
+    pct exec "${CONFIG[container_id]}" -- chown mosquitto:mosquitto /var/lib/mosquitto /var/log/mosquitto || true
+    
+    print_info "Configuring Netmaker..."
+    
+    # Generate master key
+    local master_key=$(openssl rand -hex 32)
+    
+    # Create Netmaker configuration
+    pct exec "${CONFIG[container_id]}" -- bash -c "cat > /etc/netmaker/config.yaml << 'NETMAKER_EOF'
+version: v0.21.0
+
+server:
+  host: \"0.0.0.0\"
+  apiport: 8081
+  grpcport: 8082
+  restbackend: true
+  agentbackend: true
+  messagequeuebackend: true
+
+database:
+  host: \"\"
+  port: 0
+
+messagequeue:
+  host: \"127.0.0.1\"
+  port: 1883
+  endpoint: \"mqtt://127.0.0.1:1883\"
+
+api:
+  corsallowed: \"*\"
+  endpoint: \"https://netmaker.hobsonschoice.net\"
+
+jwt_validity_duration: \"24h\"
+telemetry: \"off\"
+
+manage_iptables: \"on\"
+verbosity: 1
+platform: \"linux\"
+masterkey: \"$master_key\"
+NETMAKER_EOF"
+    
+    # Create systemd service
+    pct exec "${CONFIG[container_id]}" -- bash -c 'cat > /etc/systemd/system/netmaker.service << "SERVICE_EOF"
+[Unit]
+Description=Netmaker Server
+After=network-online.target
+After=mosquitto.service
+Requires=mosquitto.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/netmaker
+ExecStart=/usr/local/bin/netmaker --config /etc/netmaker/config.yaml
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+SERVICE_EOF'
+    
+    # Reload systemd and enable services
+    pct exec "${CONFIG[container_id]}" -- systemctl daemon-reload
+    pct exec "${CONFIG[container_id]}" -- systemctl enable mosquitto netmaker
+    
+    # Start services
+    print_info "Starting services..."
+    if pct exec "${CONFIG[container_id]}" -- systemctl start mosquitto; then
+        print_status "Mosquitto started"
+    else
+        print_warning "Mosquitto start failed"
+    fi
+    
+    if pct exec "${CONFIG[container_id]}" -- systemctl start netmaker; then
+        print_status "Netmaker started"
+    else
+        print_warning "Netmaker start failed"
+    fi
+    
+    # Save master key
+    pct exec "${CONFIG[container_id]}" -- echo "NETMAKER_MASTER_KEY=$master_key" > /etc/netmaker/master-key.env
+    print_info "Master key saved to /etc/netmaker/master-key.env"
+    
+    # Store master key in CONFIG for API calls
+    CONFIG[master_key]="$master_key"
+}
+
+# Configure Netmaker via API calls
+configure_netmaker_api() {
+    print_info "Setting up Netmaker via API calls..."
+    
+    local api_base="http://${CONFIG[container_ip]}:8081/api"
+    local master_key="${CONFIG[master_key]}"
+    
+    # Wait for API to be available
+    print_info "Waiting for Netmaker API to be available..."
+    local timeout=60
+    local count=0
+    
+    while [[ $count -lt $timeout ]]; do
+        if pct exec "${CONFIG[container_id]}" -- curl -s "$api_base/server/health" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+        ((count+=2))
+    done
+    
+    if [[ $count -ge $timeout ]]; then
+        print_warning "Netmaker API not responding - skipping API configuration"
+        return 1
+    fi
+    
+    print_status "Netmaker API is responding"
+    
+    # Create super admin user
+    print_info "Creating super admin user..."
+    local admin_response=$(pct exec "${CONFIG[container_id]}" -- curl -s -X POST "$api_base/users/adm/create" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $master_key" \
+        -d '{
+            "username": "admin",
+            "password": "GhostBridge2024!",
+            "isadmin": true
+        }' 2>/dev/null || echo '{"error":"failed"}')
+    
+    if echo "$admin_response" | grep -q "admin"; then
+        print_status "Super admin user created"
+        print_info "Username: admin"
+        print_info "Password: GhostBridge2024!"
+    else
+        print_warning "Admin user creation failed or user already exists"
+    fi
+    
+    # Create GhostBridge network
+    print_info "Creating GhostBridge network..."
+    local network_response=$(pct exec "${CONFIG[container_id]}" -- curl -s -X POST "$api_base/networks" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $master_key" \
+        -d '{
+            "netid": "ghostbridge",
+            "addressrange": "10.0.0.0/24",
+            "displayname": "GhostBridge Network",
+            "defaultpostup": "iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE",
+            "defaultpostdown": "iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE",
+            "defaultkeepalive": 20,
+            "defaultport": 51821,
+            "islocal": false,
+            "isdualstack": false,
+            "isipv4": true,
+            "isipv6": false
+        }' 2>/dev/null || echo '{"error":"failed"}')
+    
+    if echo "$network_response" | grep -q "ghostbridge"; then
+        print_status "GhostBridge network created with scope 10.0.0.0/24"
+    else
+        print_warning "Network creation failed or already exists"
+    fi
+    
+    # Create enrollment key for easy node joining
+    print_info "Creating enrollment key..."
+    local key_response=$(pct exec "${CONFIG[container_id]}" -- curl -s -X POST "$api_base/networks/ghostbridge/keys" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $master_key" \
+        -d '{
+            "uses": 100,
+            "expiration": 86400
+        }' 2>/dev/null || echo '{"error":"failed"}')
+    
+    if echo "$key_response" | grep -q "token"; then
+        local enrollment_key=$(echo "$key_response" | jq -r '.token' 2>/dev/null || echo "unknown")
+        print_status "Enrollment key created: $enrollment_key"
+        
+        # Save enrollment key
+        pct exec "${CONFIG[container_id]}" -- echo "NETMAKER_ENROLLMENT_KEY=$enrollment_key" >> /etc/netmaker/master-key.env
+    else
+        print_warning "Enrollment key creation failed"
+    fi
+    
+    # Create Proxmox host node (10.0.0.1)
+    print_info "Creating Proxmox host node (10.0.0.1)..."
+    local host_node_response=$(pct exec "${CONFIG[container_id]}" -- curl -s -X POST "$api_base/networks/ghostbridge/nodes" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $master_key" \
+        -d '{
+            "name": "proxmox-host",
+            "endpoint": "80.209.240.244:51821",
+            "publickey": "",
+            "address": "10.0.0.1",
+            "isgateway": true,
+            "isingressgateway": true,
+            "isegressgateway": true
+        }' 2>/dev/null || echo '{"error":"failed"}')
+    
+    if echo "$host_node_response" | grep -q "10.0.0.1"; then
+        print_status "Proxmox host node created (10.0.0.1)"
+    else
+        print_warning "Proxmox host node creation failed"
+    fi
+    
+    # Create container node (10.0.0.151)
+    print_info "Creating container node (${CONFIG[container_ip]})..."
+    local container_node_response=$(pct exec "${CONFIG[container_id]}" -- curl -s -X POST "$api_base/networks/ghostbridge/nodes" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $master_key" \
+        -d "{
+            \"name\": \"netmaker-container\",
+            \"endpoint\": \"${CONFIG[container_ip]}:51822\",
+            \"publickey\": \"\",
+            \"address\": \"${CONFIG[container_ip]}\",
+            \"isgateway\": false,
+            \"isingressgateway\": false,
+            \"isegressgateway\": false
+        }" 2>/dev/null || echo '{"error":"failed"}')
+    
+    if echo "$container_node_response" | grep -q "${CONFIG[container_ip]}"; then
+        print_status "Container node created (${CONFIG[container_ip]})"
+    else
+        print_warning "Container node creation failed"
+    fi
+    
+    print_status "Netmaker API configuration completed"
+    print_info "Network: ghostbridge (10.0.0.0/24)"
+    print_info "Nodes: Proxmox host (10.0.0.1), Container (${CONFIG[container_ip]})"
 }
 
 # Step 5: Upgrade nginx on Proxmox host
