@@ -164,7 +164,11 @@ setup_ovs_bridge() {
             print_status "✅ OVS bridge setup completed successfully"
         else
             print_error "❌ OVS bridge setup failed"
-            exit 1
+            print_question "Do you want to continue anyway? [y/N]: "
+            read -r response
+            if [[ ! "$response" =~ ^[Yy]$ ]]; then
+                exit 1
+            fi
         fi
     else
         # Manual OVS bridge setup
