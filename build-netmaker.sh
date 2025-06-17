@@ -297,10 +297,10 @@ build_netmaker() {
     
     cd "$BUILD_DIR/netmaker"
     
-    # Set build variables
+    # Set build variables (make BUILD_VERSION global for completion summary)
     local BUILD_TIME=$(date -u '+%Y-%m-%d_%H:%M:%S')
     local GIT_COMMIT=$(git rev-parse --short HEAD)
-    local BUILD_VERSION="$VERSION-ghostbridge-emqx"
+    BUILD_VERSION="$VERSION-ghostbridge-emqx"  # Global variable
     
     print_info "Setting up Go module..."
     export GO111MODULE=on
