@@ -25,6 +25,9 @@ NC='\033[0m' # No Color
 # Configuration storage
 declare -A CONFIG
 
+# Global variables
+master_key=""
+
 # Utility functions
 print_status() {
     echo -e "${GREEN}[✓]${NC} $1" | tee -a "$LOG_FILE"
@@ -494,8 +497,8 @@ configure_services_in_container() {
     
     print_info "Configuring Netmaker..."
     
-    # Generate master key
-    local master_key=$(openssl rand -hex 32)
+    # Generate master key (make global for API functions)
+    master_key=$(openssl rand -hex 32)
     
     # Create Netmaker configuration
     pct exec "${CONFIG[container_id]}" -- bash -c "cat > /etc/netmaker/config.yaml << 'NETMAKER_EOF'
@@ -770,8 +773,15 @@ configure_final_network() {
     
     # Check if OVS network setup script exists
     if [[ -f "$SCRIPT_DIR/scripts/01-network-setup.sh" ]]; then
-        print_question "Configure advanced OVS networking with Netmaker integration? [Y/n]: "
-        read -r configure_ovs
+        local configure_ovs="Y"
+        if [[ "${CONFIG[interactive]}" == "false" ]]; then
+            print_info "Non-interactive mode: Configuring advanced OVS networking automatically"
+            configure_ovs="Y"
+        else
+            print_question "Configure advanced OVS networking with Netmaker integration? [Y/n]: "
+            read -r configure_ovs
+        fi
+        
         if [[ ! "$configure_ovs" =~ ^[Nn]$ ]]; then
             print_info "Running OVS network setup with Netmaker integration..."
             if bash "$SCRIPT_DIR/scripts/01-network-setup.sh"; then
@@ -780,8 +790,15 @@ configure_final_network() {
                 # Update container network configuration
                 print_info "Updating container network to use OVS bridge..."
                 print_warning "Container will need to be stopped and reconfigured"
-                print_question "Stop container and reconfigure networking? [Y/n]: "
-                read -r reconfig_container
+                local reconfig_container="Y"
+                if [[ "${CONFIG[interactive]}" == "false" ]]; then
+                    print_info "Non-interactive mode: Reconfiguring container networking automatically"
+                    reconfig_container="Y"
+                else
+                    print_question "Stop container and reconfigure networking? [Y/n]: "
+                    read -r reconfig_container
+                fi
+                
                 if [[ ! "$reconfig_container" =~ ^[Nn]$ ]]; then
                     pct stop "${CONFIG[container_id]}" || true
                     

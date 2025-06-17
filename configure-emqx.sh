@@ -35,106 +35,65 @@ print_info "Creating EMQX directories..."
 pct exec "$CONTAINER_ID" -- mkdir -p /etc/emqx /var/lib/emqx /var/log/emqx
 pct exec "$CONTAINER_ID" -- chown emqx:emqx /var/lib/emqx /var/log/emqx
 
-# Create EMQX configuration
+# Create simple EMQX configuration (compatible with EMQX 5.x)
 print_info "Creating EMQX configuration..."
 pct exec "$CONTAINER_ID" -- bash -c 'cat > /etc/emqx/emqx.conf << "EOF"
-## EMQX Configuration for GhostBridge Netmaker
+## Simple EMQX Configuration for GhostBridge Netmaker
+## Compatible with EMQX 5.x
 
-## Node name and clustering
-node.name = emqx@127.0.0.1
-node.cookie = ghostbridge_emqx_cluster
-cluster.discovery = manual
+node {
+  name = "emqx@127.0.0.1"
+  cookie = "ghostbridge_emqx_cluster"
+}
 
-## MQTT TCP Listener
-listener.tcp.default = 1883
-listener.tcp.default.bind = 0.0.0.0:1883
-listener.tcp.default.max_connections = 10240
-listener.tcp.default.acceptors = 16
+cluster {
+  discovery_strategy = manual
+}
 
-## MQTT WebSocket Listener
-listener.ws.default = 8083
-listener.ws.default.bind = 0.0.0.0:8083
-listener.ws.default.mqtt_path = /mqtt
-listener.ws.default.max_connections = 10240
+listeners.tcp.default {
+  bind = "0.0.0.0:1883"
+  max_connections = 10240
+}
 
-## Authentication
-allow_anonymous = false
-auth.user.1.username = '"$MQTT_USERNAME"'
-auth.user.1.password = '"$MQTT_PASSWORD"'
+listeners.ws.default {
+  bind = "0.0.0.0:8083"
+  mqtt_path = "/mqtt"
+  max_connections = 10240
+}
 
-## Session Settings
-session.max_subscriptions = 0
-session.upgrade_qos = off
-session.max_inflight = 32
-session.retry_interval = 30s
-session.max_awaiting_rel = 100
-session.await_rel_timeout = 300s
-session.enable_stats = on
+authentication = [
+  {
+    mechanism = password_based
+    backend = built_in_database
+    user_id_type = username
+  }
+]
 
-## Message Queue
-mqueue.max_len = 1000
-mqueue.low_watermark = 0.2
-mqueue.high_watermark = 0.6
-mqueue.store_qos0 = true
+authorization {
+  no_match = allow
+  cache {
+    enable = true
+  }
+}
 
-## Logging
-log.level = warning
-log.dir = /var/log/emqx
-log.file = emqx.log
-log.rotation.size = 10MB
-log.rotation.count = 5
+dashboard {
+  listeners.http {
+    bind = 18083
+  }
+  default_username = "admin"
+  default_password = "public"
+}
 
-## Management API (Dashboard)
-management.listener.http = 18083
-management.listener.http.bind = 0.0.0.0:18083
-management.default_application.id = admin
-management.default_application.secret = public
-
-## Zones
-zone.external.idle_timeout = 15s
-zone.external.enable_acl = off
-zone.external.enable_ban = on
-zone.external.enable_stats = on
-zone.external.acl_deny_action = ignore
-zone.external.force_gc_policy = 16000|16MB
-zone.external.force_shutdown_policy = 8000|8MB
-zone.external.max_packet_size = 1MB
-zone.external.max_clientid_len = 65535
-zone.external.max_topic_levels = 0
-zone.external.max_topic_alias = 65535
-zone.external.retain_available = true
-zone.external.wildcard_subscription = true
-zone.external.shared_subscription = true
-zone.external.server_keepalive = 0
-zone.external.keepalive_backoff = 0.75
-zone.external.max_subscriptions = 0
-zone.external.upgrade_qos = off
-zone.external.max_inflight = 32
-zone.external.retry_interval = 30s
-zone.external.max_awaiting_rel = 100
-zone.external.await_rel_timeout = 300s
-zone.external.session_expiry_interval = 7200s
-zone.external.max_mqueue_len = 1000
-zone.external.mqueue_priorities = none
-zone.external.mqueue_default_priority = lowest
-zone.external.mqueue_store_qos0 = true
-zone.external.enable_flapping_detect = off
-zone.external.mountpoint = ""
-zone.external.use_username_as_clientid = false
-zone.external.ignore_loop_deliver = false
-zone.external.strict_mode = false
+log {
+  file_handlers.default {
+    level = warning
+    file = "/var/log/emqx/emqx.log"
+  }
+}
 EOF'
 
-# Create loaded plugins file
-print_info "Configuring EMQX plugins..."
-pct exec "$CONTAINER_ID" -- bash -c 'cat > /etc/emqx/loaded_plugins << "EOF"
-{emqx_management, true}.
-{emqx_auth_username, true}.
-{emqx_recon, true}.
-{emqx_retainer, true}.
-{emqx_dashboard, true}.
-{emqx_rule_engine, true}.
-EOF'
+# For EMQX 5.x, we'll configure users via API after startup instead of config file
+print_info "EMQX user configuration will be done via API after startup"
 
 # Store credentials for Netmaker
 print_info "Storing MQTT credentials..."
