@@ -183,9 +183,13 @@ get_build_config() {
     DEFAULT_VERSION="v0.21.0"
     DEFAULT_MQTT_HOST="127.0.0.1"
     DEFAULT_MQTT_PORT="1883"
+    DEFAULT_MQTT_WS_PORT="8083"
     DEFAULT_API_HOST="0.0.0.0"
     DEFAULT_API_PORT="8081"
     DEFAULT_GRPC_PORT="8082"
+    DEFAULT_BROKER_TYPE="emqx"
+    DEFAULT_MQTT_USERNAME="netmaker"
+    DEFAULT_DASHBOARD_URL="https://netmaker.hobsonschoice.net"
     
     print_info "Configure build parameters to embed in binary:"
     echo
@@ -199,6 +203,15 @@ get_build_config() {
     read -p "Default MQTT port [$DEFAULT_MQTT_PORT]: " MQTT_PORT
     MQTT_PORT="${MQTT_PORT:-$DEFAULT_MQTT_PORT}"
     
+    read -p "Default MQTT WebSocket port [$DEFAULT_MQTT_WS_PORT]: " MQTT_WS_PORT
+    MQTT_WS_PORT="${MQTT_WS_PORT:-$DEFAULT_MQTT_WS_PORT}"
+    
+    read -p "MQTT broker type [$DEFAULT_BROKER_TYPE]: " BROKER_TYPE
+    BROKER_TYPE="${BROKER_TYPE:-$DEFAULT_BROKER_TYPE}"
+    
+    read -p "Default MQTT username [$DEFAULT_MQTT_USERNAME]: " MQTT_USERNAME
+    MQTT_USERNAME="${MQTT_USERNAME:-$DEFAULT_MQTT_USERNAME}"
+    
     read -p "Default API host [$DEFAULT_API_HOST]: " API_HOST
     API_HOST="${API_HOST:-$DEFAULT_API_HOST}"
     
@@ -208,12 +221,19 @@ get_build_config() {
     read -p "Default gRPC port [$DEFAULT_GRPC_PORT]: " GRPC_PORT
     GRPC_PORT="${GRPC_PORT:-$DEFAULT_GRPC_PORT}"
     
+    read -p "Dashboard URL [$DEFAULT_DASHBOARD_URL]: " DASHBOARD_URL
+    DASHBOARD_URL="${DASHBOARD_URL:-$DEFAULT_DASHBOARD_URL}"
+    
     echo
     print_info "Build configuration:"
     echo "  • Version: $VERSION"
-    echo "  • MQTT: $MQTT_HOST:$MQTT_PORT"
+    echo "  • MQTT Broker: $BROKER_TYPE"
+    echo "  • MQTT TCP: $MQTT_HOST:$MQTT_PORT"
+    echo "  • MQTT WebSocket: $MQTT_HOST:$MQTT_WS_PORT"
+    echo "  • MQTT Username: $MQTT_USERNAME"
     echo "  • API: $API_HOST:$API_PORT"
     echo "  • gRPC: $API_HOST:$GRPC_PORT"
+    echo "  • Dashboard: $DASHBOARD_URL"
     echo
 }
 
@@ -278,13 +298,17 @@ build_netmaker() {
     # Set build variables
     local BUILD_TIME=$(date -u '+%Y-%m-%d_%H:%M:%S')
     local GIT_COMMIT=$(git rev-parse --short HEAD)
-    local BUILD_VERSION="$VERSION-ghostbridge"
+    local BUILD_VERSION="$VERSION-ghostbridge-emqx"
     
     print_info "Setting up Go module..."
     export GO111MODULE=on
     export CGO_ENABLED=0
     export GOOS=linux
     export GOARCH=amd64
+    
+    # EMQX-specific build environment
+    export NETMAKER_MQTT_BROKER="emqx"
+    export NETMAKER_BUILD_TYPE="ghostbridge"
     
     # Download dependencies
     if go mod download; then
@@ -303,14 +327,22 @@ build_netmaker() {
         "-X 'main.gitCommit=$GIT_COMMIT'"
         "-X 'github.com/gravitl/netmaker/config.defaultMQTTHost=$MQTT_HOST'"
         "-X 'github.com/gravitl/netmaker/config.defaultMQTTPort=$MQTT_PORT'"
+        "-X 'github.com/gravitl/netmaker/config.defaultMQTTWSPort=$MQTT_WS_PORT'"
+        "-X 'github.com/gravitl/netmaker/config.defaultBrokerType=$BROKER_TYPE'"
+        "-X 'github.com/gravitl/netmaker/config.defaultMQTTUsername=$MQTT_USERNAME'"
         "-X 'github.com/gravitl/netmaker/config.defaultAPIHost=$API_HOST'"
         "-X 'github.com/gravitl/netmaker/config.defaultAPIPort=$API_PORT'"
         "-X 'github.com/gravitl/netmaker/config.defaultGRPCPort=$GRPC_PORT'"
+        "-X 'github.com/gravitl/netmaker/config.defaultDashboardURL=$DASHBOARD_URL'"
+        "-X 'github.com/gravitl/netmaker/config.ghostbridgeBuild=true'"
     )
     
     print_info "Build flags: ${LDFLAGS[*]}"
     
-    if go build -ldflags "${LDFLAGS[*]}" -o netmaker .; then
+    # Build with EMQX support tags
+    local BUILD_TAGS="emqx,ghostbridge,netmaker_pro"
+    
+    if go build -tags "$BUILD_TAGS" -ldflags "${LDFLAGS[*]}" -o netmaker .; then
         print_status "Netmaker binary built successfully"
     else
         print_error "Build failed"
@@ -364,8 +396,13 @@ show_completion() {
     
     echo -e "${CYAN}📋 Build Summary:${NC}"
     echo "  • Version: $BUILD_VERSION"
-    echo "  • Embedded MQTT: $MQTT_HOST:$MQTT_PORT"
-    echo "  • Embedded API: $API_HOST:$API_PORT"
+    echo "  • MQTT Broker: $BROKER_TYPE"
+    echo "  • MQTT TCP: $MQTT_HOST:$MQTT_PORT"
+    echo "  • MQTT WebSocket: $MQTT_HOST:$MQTT_WS_PORT"
+    echo "  • MQTT Username: $MQTT_USERNAME"
+    echo "  • API: $API_HOST:$API_PORT"
+    echo "  • gRPC: $API_HOST:$GRPC_PORT"
+    echo "  • Dashboard: $DASHBOARD_URL"
     echo "  • Binary location: $OUTPUT_DIR/netmaker-latest"
     echo
     
