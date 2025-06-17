@@ -218,12 +218,41 @@ deploy_lxc_container() {
     if bash "$create_cmd"; then
         print_status "✅ LXC container creation completed successfully"
         
-        # Extract container ID (assuming default 100)
-        CONFIG[container_id]="100"
-        CONFIG[container_ip]="10.0.0.151"  # Updated for container DHCP range
+        # Try to find the most recently created container
+        local latest_container=$(pct list | tail -n +2 | sort -k1 -n | tail -1 | awk '{print $1}')
         
-        print_info "Container created with ID: ${CONFIG[container_id]}"
-        print_info "Container IP: ${CONFIG[container_ip]}"
+        if [[ -n "$latest_container" ]]; then
+            print_info "Detected latest container: $latest_container"
+            print_question "Use container ID $latest_container? [Y/n]: "
+            read -r use_detected
+            if [[ ! "$use_detected" =~ ^[Nn]$ ]]; then
+                CONFIG[container_id]="$latest_container"
+            else
+                print_question "Enter the container ID that was created: "
+                read -r created_container_id
+                CONFIG[container_id]="$created_container_id"
+            fi
+        else
+            print_question "Enter the container ID that was created: "
+            read -r created_container_id
+            CONFIG[container_id]="$created_container_id"
+        fi
+        
+        # Get container config to extract IP
+        local container_config=$(pct config "${CONFIG[container_id]}" 2>/dev/null || echo "")
+        local detected_ip=$(echo "$container_config" | grep "^net0:" | sed -n 's/.*ip=\([^,/]*\).*/\1/p')
+        
+        if [[ -n "$detected_ip" ]]; then
+            CONFIG[container_ip]="$detected_ip"
+            print_info "Detected container IP: $detected_ip"
+        else
+            print_question "Enter the container IP: "
+            read -r created_container_ip
+            CONFIG[container_ip]="$created_container_ip"
+        fi
+        
+        print_info "Using container ID: ${CONFIG[container_id]}"
+        print_info "Using container IP: ${CONFIG[container_ip]}"
         
     else
         print_error "❌ LXC container creation failed"
