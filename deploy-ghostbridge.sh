@@ -445,12 +445,10 @@ log_type information
 log_timestamp true
 
 # MQTT TCP Listener
-listener 1883
-bind_address 0.0.0.0
+listener 1883 0.0.0.0
 
 # MQTT WebSocket Listener  
-listener 9001
-bind_address 0.0.0.0
+listener 9001 0.0.0.0
 protocol websockets
 
 # Connection settings
