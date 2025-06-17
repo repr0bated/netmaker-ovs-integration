@@ -35,43 +35,47 @@ print_info "Creating EMQX directories..."
 pct exec "$CONTAINER_ID" -- mkdir -p /etc/emqx /var/lib/emqx /var/log/emqx
 pct exec "$CONTAINER_ID" -- chown emqx:emqx /var/lib/emqx /var/log/emqx
 
-# Create EMQX configuration by copying pre-made config file
-print_info "Creating EMQX configuration..."
+# Try to use EMQX default configuration approach
+print_info "Setting up EMQX configuration..."
+
+# Check EMQX version first
+print_info "Checking EMQX version..."
+emqx_version=$(pct exec "$CONTAINER_ID" -- emqx --version 2>/dev/null | head -1 || echo "unknown")
+print_info "EMQX version: $emqx_version"
 
 # Remove any existing config first
 pct exec "$CONTAINER_ID" -- rm -f /etc/emqx/emqx.conf
 
-# Get the script directory to find the config file
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Copy pre-made config file to avoid heredoc character encoding issues
-if [[ -f "$SCRIPT_DIR/emqx-minimal.conf" ]]; then
-    print_info "Copying pre-made EMQX configuration..."
-    pct push "$CONTAINER_ID" "$SCRIPT_DIR/emqx-minimal.conf" /etc/emqx/emqx.conf
+# Try to start with default config first to see if EMQX works without custom config
+print_info "Testing EMQX with default configuration..."
+if pct exec "$CONTAINER_ID" -- systemctl start emqx 2>/dev/null; then
+    sleep 3
+    if pct exec "$CONTAINER_ID" -- systemctl is-active --quiet emqx; then
+        print_status "EMQX started successfully with default config"
+        print_info "Will configure via API instead of config file"
+        return 0
+    else
+        print_info "EMQX failed with default config, creating custom config..."
+        pct exec "$CONTAINER_ID" -- systemctl stop emqx 2>/dev/null || true
+    fi
 else
-    print_warning "Pre-made config file not found, creating inline..."
-    # Create ultra-minimal config as fallback
-    pct exec "$CONTAINER_ID" -- bash -c 'echo "listeners.tcp.default = 1883" > /etc/emqx/emqx.conf'
-    pct exec "$CONTAINER_ID" -- bash -c 'echo "listeners.ws.default = 8083" >> /etc/emqx/emqx.conf'
-    pct exec "$CONTAINER_ID" -- bash -c 'echo "dashboard.listeners.http = 18083" >> /etc/emqx/emqx.conf'
+    print_info "EMQX service start failed, creating custom config..."
 fi
 
-# Validate the config after creation
-print_info "Validating EMQX configuration syntax..."
-if ! pct exec "$CONTAINER_ID" -- emqx chkconfig 2>/dev/null; then
-    print_warning "Config validation failed, trying ultra-minimal config..."
+# Create absolutely minimal config using printf to avoid any character issues
+print_info "Creating minimal EMQX configuration..."
+pct exec "$CONTAINER_ID" -- printf 'listeners.tcp.default = 1883\nlisteners.ws.default = 8083\ndashboard.listeners.http = 18083\n' > /etc/emqx/emqx.conf
+
+# Test the minimal config
+print_info "Testing minimal configuration..."
+if pct exec "$CONTAINER_ID" -- emqx chkconfig 2>/dev/null; then
+    print_status "Minimal config validated successfully"
+else
+    print_warning "Config validation still failed - EMQX may have compatibility issues"
+    print_info "Will attempt to start EMQX anyway and configure via API"
     
-    # Last resort - create the simplest possible config
-    pct exec "$CONTAINER_ID" -- bash -c 'echo "listeners.tcp.default = 1883" > /etc/emqx/emqx.conf'
-    pct exec "$CONTAINER_ID" -- bash -c 'echo "listeners.ws.default = 8083" >> /etc/emqx/emqx.conf'
-    pct exec "$CONTAINER_ID" -- bash -c 'echo "dashboard.listeners.http = 18083" >> /etc/emqx/emqx.conf'
-    
-    # Test again
-    if pct exec "$CONTAINER_ID" -- emqx chkconfig 2>/dev/null; then
-        print_status "Ultra-minimal config validated successfully"
-    else
-        print_error "Even minimal config failed - may need manual EMQX setup"
-    fi
+    # Create empty config as last resort
+    pct exec "$CONTAINER_ID" -- touch /etc/emqx/emqx.conf
 fi
 
 # For EMQX 5.x, we'll configure users via API after startup instead of config file
