@@ -9,6 +9,19 @@ SCRIPT_VERSION="1.0.0"
 BUILD_DIR="/tmp/netmaker-build"
 OUTPUT_DIR="$(pwd)/binaries"
 
+# Global build variables (used across functions)
+VERSION=""
+BUILD_VERSION=""
+MQTT_HOST=""
+MQTT_PORT=""
+MQTT_WS_PORT=""
+BROKER_TYPE=""
+MQTT_USERNAME=""
+API_HOST=""
+API_PORT=""
+GRPC_PORT=""
+DASHBOARD_URL=""
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -297,10 +310,10 @@ build_netmaker() {
     
     cd "$BUILD_DIR/netmaker"
     
-    # Set build variables (make BUILD_VERSION global for completion summary)
+    # Set build variables
     local BUILD_TIME=$(date -u '+%Y-%m-%d_%H:%M:%S')
     local GIT_COMMIT=$(git rev-parse --short HEAD)
-    BUILD_VERSION="$VERSION-ghostbridge-emqx"  # Global variable
+    BUILD_VERSION="$VERSION-ghostbridge-emqx"  # Set global variable for completion summary
     
     print_info "Setting up Go module..."
     export GO111MODULE=on
