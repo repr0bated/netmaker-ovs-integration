@@ -451,10 +451,10 @@ listener 1883 0.0.0.0
 listener 9001 0.0.0.0
 protocol websockets
 
-# Connection settings
-max_packet_size 1048576
-keepalive_interval 60
-max_keepalive 120
+# Global connection settings
+max_inflight_messages 20
+max_queued_messages 100
+retain_available true
 MQTT_EOF'
     
     # Test Mosquitto configuration
@@ -528,16 +528,26 @@ StandardError=journal
 WantedBy=multi-user.target
 SERVICE_EOF'
     
-    # Reload systemd and enable services
+    # Reload systemd and enable services (but don't start them yet)
     pct exec "${CONFIG[container_id]}" -- systemctl daemon-reload
     pct exec "${CONFIG[container_id]}" -- systemctl enable mosquitto netmaker
     
-    # Start services
-    print_info "Starting services..."
+    print_status "✅ All services installed and configured (not started)"
+    print_info "Services are ready but not started - use manual startup for troubleshooting"
+    
+    # Installation complete - services can be started manually
+    print_info "To start services manually:"
+    print_info "  1. pct exec ${CONFIG[container_id]} -- systemctl start mosquitto"
+    print_info "  2. pct exec ${CONFIG[container_id]} -- systemctl start netmaker"
+    
+    return 0  # Exit here without starting services
+    
+    # DISABLED: Start services (commented out for manual troubleshooting)
+    # print_info "Starting services..."
     
     # Start Mosquitto with detailed logging
-    print_info "Starting Mosquitto..."
-    if pct exec "${CONFIG[container_id]}" -- systemctl start mosquitto; then
+    # print_info "Starting Mosquitto..."
+    if false; then  # Disabled - was: pct exec "${CONFIG[container_id]}" -- systemctl start mosquitto; then
         print_status "Mosquitto started"
         
         # Verify Mosquitto is actually running
