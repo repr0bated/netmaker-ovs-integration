@@ -150,9 +150,56 @@ get_deployment_config() {
     echo
 }
 
-# Step 1: Create LXC Container
+# Step 1: Setup OVS Bridge
+setup_ovs_bridge() {
+    print_header "Step 1: Setting up OVS Bridge"
+    echo "════════════════════════════════════════════════════════════════════════"
+    
+    print_info "Setting up OVS bridge 'ovsbr0' for container networking..."
+    
+    # Check if OVS bridge script exists
+    if [[ -f "$SCRIPT_DIR/scripts/01-network-setup.sh" ]]; then
+        print_info "Running OVS network setup script..."
+        if bash "$SCRIPT_DIR/scripts/01-network-setup.sh"; then
+            print_status "✅ OVS bridge setup completed successfully"
+        else
+            print_error "❌ OVS bridge setup failed"
+            exit 1
+        fi
+    else
+        # Manual OVS bridge setup
+        print_info "Creating OVS bridge manually..."
+        
+        # Install OVS if needed
+        if ! command -v ovs-vsctl >/dev/null 2>&1; then
+            print_info "Installing Open vSwitch..."
+            apt update && apt install -y openvswitch-switch
+        fi
+        
+        # Create OVS bridge
+        if ! ovs-vsctl br-exists ovsbr0; then
+            print_info "Creating OVS bridge 'ovsbr0'..."
+            ovs-vsctl add-br ovsbr0
+            ip link set ovsbr0 up
+            print_status "OVS bridge 'ovsbr0' created"
+        else
+            print_status "OVS bridge 'ovsbr0' already exists"
+        fi
+        
+        # Configure bridge IP (if needed)
+        if ! ip addr show ovsbr0 | grep -q "10.0.0.1"; then
+            print_info "Configuring bridge IP..."
+            ip addr add 10.0.0.1/24 dev ovsbr0
+            print_status "Bridge IP configured: 10.0.0.1/24"
+        fi
+    fi
+    
+    echo
+}
+
+# Step 2: Create LXC Container
 deploy_lxc_container() {
-    print_header "Step 1: Creating LXC Container"
+    print_header "Step 2: Creating LXC Container"
     echo "════════════════════════════════════════════════════════════════════════"
     
     print_info "Running LXC container creation script..."
@@ -182,49 +229,82 @@ deploy_lxc_container() {
     echo
 }
 
-# Step 2: Install services in container
-deploy_container_services() {
-    print_header "Step 2: Installing Services in Container"
+# Step 3: Start LXC Container
+start_lxc_container() {
+    print_header "Step 3: Starting LXC Container"
     echo "════════════════════════════════════════════════════════════════════════"
     
-    print_info "Copying installation script to container..."
+    print_info "Starting container ${CONFIG[container_id]}..."
     
-    # Copy the container installation script
-    if pct push "${CONFIG[container_id]}" "$SCRIPT_DIR/install-container-services.sh" /root/install-container-services.sh; then
-        print_status "Installation script copied to container"
+    if pct start "${CONFIG[container_id]}"; then
+        print_status "✅ Container started successfully"
+        
+        # Wait for container to be ready
+        print_info "Waiting for container network to be ready..."
+        local timeout=30
+        local count=0
+        
+        while [[ $count -lt $timeout ]]; do
+            if pct exec "${CONFIG[container_id]}" -- ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+                break
+            fi
+            sleep 2
+            ((count+=2))
+        done
+        
+        if [[ $count -ge $timeout ]]; then
+            print_warning "Container network test timeout (may still work)"
+        else
+            print_status "Container network is ready"
+        fi
+        
     else
-        print_error "Failed to copy installation script to container"
-        exit 1
-    fi
-    
-    # Make it executable
-    pct exec "${CONFIG[container_id]}" -- chmod +x /root/install-container-services.sh
-    
-    print_info "Running container services installation..."
-    
-    # Set environment variables for non-interactive mode
-    if [[ "${CONFIG[interactive]}" == "false" ]]; then
-        pct exec "${CONFIG[container_id]}" -- bash -c "
-            export GHOSTBRIDGE_DOMAIN=hobsonschoice.net
-            /root/install-container-services.sh
-        "
-    else
-        pct exec "${CONFIG[container_id]}" -- /root/install-container-services.sh
-    fi
-    
-    if [[ $? -eq 0 ]]; then
-        print_status "✅ Container services installation completed successfully"
-    else
-        print_error "❌ Container services installation failed"
+        print_error "❌ Failed to start container"
         exit 1
     fi
     
     echo
 }
 
-# Step 3: Upgrade nginx on Proxmox host
+# Step 4: Install services in container using pct enter
+deploy_container_services() {
+    print_header "Step 4: Installing Services in Container"
+    echo "════════════════════════════════════════════════════════════════════════"
+    
+    print_info "Container services will be installed interactively"
+    print_info "You will be placed inside the container to run installation commands"
+    
+    print_question "Do you want to enter the container now to install services? [Y/n]: "
+    read -r enter_container
+    if [[ "$enter_container" =~ ^[Nn]$ ]]; then
+        print_info "Skipping container service installation"
+        print_info "To install later, run: pct enter ${CONFIG[container_id]}"
+        return 0
+    fi
+    
+    print_info "Opening container shell..."
+    print_info "Run these commands inside the container:"
+    echo "  1. apt update && apt upgrade -y"
+    echo "  2. apt install -y curl wget unzip jq openssl mosquitto mosquitto-clients"
+    echo "  3. systemctl stop mosquitto && systemctl disable mosquitto"
+    echo "  4. Download and install Netmaker binary"
+    echo "  5. Configure Mosquitto and Netmaker"
+    echo "  6. Type 'exit' when done"
+    echo
+    
+    print_question "Press Enter to continue into container..."
+    read -r
+    
+    # Enter container interactively
+    pct enter "${CONFIG[container_id]}"
+    
+    print_status "✅ Returned from container - services installation completed"
+    echo
+}
+
+# Step 5: Upgrade nginx on Proxmox host
 deploy_nginx_upgrade() {
-    print_header "Step 3: Upgrading Nginx on Proxmox Host"
+    print_header "Step 5: Upgrading Nginx on Proxmox Host"
     echo "════════════════════════════════════════════════════════════════════════"
     
     print_info "Running nginx upgrade script..."
@@ -241,9 +321,9 @@ deploy_nginx_upgrade() {
     echo
 }
 
-# Step 4: Test connectivity between components
+# Step 6: Test connectivity between components
 test_deployment() {
-    print_header "Step 4: Testing Deployment"
+    print_header "Step 6: Testing Deployment"
     echo "════════════════════════════════════════════════════════════════════════"
     
     print_info "Testing container connectivity..."
@@ -442,8 +522,10 @@ main() {
     echo "════════════════════════════════════════════════════════════════════════"
     echo
     
-    # Execute deployment steps
+    # Execute deployment steps in correct order
+    setup_ovs_bridge
     deploy_lxc_container
+    start_lxc_container
     deploy_container_services
     deploy_nginx_upgrade
     test_deployment
