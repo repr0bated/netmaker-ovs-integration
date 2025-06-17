@@ -381,10 +381,72 @@ deploy_container_services() {
 
 # Install Netmaker binary in container
 install_netmaker_in_container() {
-    print_info "Downloading and installing Netmaker binary..."
+    print_info "Installing Netmaker binary..."
     
     # Create directories
     pct exec "${CONFIG[container_id]}" -- mkdir -p /etc/netmaker /opt/netmaker/{data,logs} /var/log/netmaker
+    
+    # Check for existing built binary
+    local built_binary="$SCRIPT_DIR/binaries/netmaker-latest"
+    local use_built_binary=false
+    
+    if [[ -f "$built_binary" ]]; then
+        print_info "Found existing built binary: $built_binary"
+        if [[ "${CONFIG[interactive]}" == "false" ]]; then
+            print_info "Non-interactive mode: Using existing built binary"
+            use_built_binary=true
+        else
+            print_question "Use existing built binary? [Y/n]: "
+            read -r use_existing
+            if [[ ! "$use_existing" =~ ^[Nn]$ ]]; then
+                use_built_binary=true
+            fi
+        fi
+    fi
+    
+    if [[ "$use_built_binary" == "true" ]]; then
+        # Use existing built binary
+        print_info "Using existing built Netmaker binary"
+        if pct push "${CONFIG[container_id]}" "$built_binary" /usr/local/bin/netmaker; then
+            pct exec "${CONFIG[container_id]}" -- chmod +x /usr/local/bin/netmaker
+            print_status "Built Netmaker binary installed"
+            
+            # Show version info
+            local version_info=$(pct exec "${CONFIG[container_id]}" -- /usr/local/bin/netmaker --version 2>/dev/null || echo "version check failed")
+            print_info "Netmaker version: $version_info"
+        else
+            print_error "Failed to copy built binary to container"
+            return 1
+        fi
+    else
+        # Prompt to build or download
+        if [[ "${CONFIG[interactive]}" == "false" ]]; then
+            print_info "Non-interactive mode: Downloading pre-built binary"
+            download_prebuilt_netmaker
+        else
+            print_question "Choose Netmaker installation method:"
+            echo "  1) Build from source (recommended - custom parameters)"
+            echo "  2) Download pre-built binary (faster)"
+            read -p "Choice [1/2]: " install_choice
+            
+            case "$install_choice" in
+                2)
+                    download_prebuilt_netmaker
+                    ;;
+                1|*)
+                    print_info "Building Netmaker from source..."
+                    print_info "Run: $SCRIPT_DIR/build-netmaker.sh"
+                    print_info "Then re-run this deployment script"
+                    exit 0
+                    ;;
+            esac
+        fi
+    fi
+}
+
+# Download pre-built Netmaker binary
+download_prebuilt_netmaker() {
+    print_info "Downloading pre-built Netmaker binary..."
     
     # Get latest Netmaker version and download
     local netmaker_version=$(curl -s https://api.github.com/repos/gravitl/netmaker/releases/latest | jq -r .tag_name 2>/dev/null || echo "v0.21.0")
@@ -395,7 +457,7 @@ install_netmaker_in_container() {
     if pct exec "${CONFIG[container_id]}" -- wget -O /tmp/netmaker "$download_url"; then
         pct exec "${CONFIG[container_id]}" -- chmod +x /tmp/netmaker
         pct exec "${CONFIG[container_id]}" -- mv /tmp/netmaker /usr/local/bin/netmaker
-        print_status "Netmaker binary installed"
+        print_status "Pre-built Netmaker binary installed"
     else
         print_warning "Netmaker download failed"
         return 1
