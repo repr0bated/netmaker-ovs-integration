@@ -70,6 +70,7 @@ pct exec "$CONTAINER_ID" -- bash -c 'cat > /etc/emqx/emqx.conf << "EOF"
 ## Node settings
 node.name = "emqx@127.0.0.1"
 node.cookie = "secret-cookie"
+node.data_dir = "/var/lib/emqx"
 
 ## Dashboard settings
 listener.dashboard = 18083
