@@ -35,38 +35,44 @@ print_info "Creating EMQX directories..."
 pct exec "$CONTAINER_ID" -- mkdir -p /etc/emqx /var/lib/emqx /var/log/emqx
 pct exec "$CONTAINER_ID" -- chown emqx:emqx /var/lib/emqx /var/log/emqx
 
-# Create simple EMQX configuration (compatible with EMQX 5.x)
+# Create EMQX configuration by copying pre-made config file
 print_info "Creating EMQX configuration..."
 
 # Remove any existing config first
 pct exec "$CONTAINER_ID" -- rm -f /etc/emqx/emqx.conf
 
-# Create minimal working config to avoid syntax issues
-pct exec "$CONTAINER_ID" -- tee /etc/emqx/emqx.conf > /dev/null << 'EOF'
-## EMQX Configuration for GhostBridge
-node.name = emqx@127.0.0.1
-node.cookie = ghostbridge_emqx_cluster
+# Get the script directory to find the config file
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-listeners.tcp.default.bind = 0.0.0.0:1883
-listeners.tcp.default.max_connections = 10240
+# Copy pre-made config file to avoid heredoc character encoding issues
+if [[ -f "$SCRIPT_DIR/emqx-minimal.conf" ]]; then
+    print_info "Copying pre-made EMQX configuration..."
+    pct push "$CONTAINER_ID" "$SCRIPT_DIR/emqx-minimal.conf" /etc/emqx/emqx.conf
+else
+    print_warning "Pre-made config file not found, creating inline..."
+    # Create ultra-minimal config as fallback
+    pct exec "$CONTAINER_ID" -- bash -c 'echo "listeners.tcp.default = 1883" > /etc/emqx/emqx.conf'
+    pct exec "$CONTAINER_ID" -- bash -c 'echo "listeners.ws.default = 8083" >> /etc/emqx/emqx.conf'
+    pct exec "$CONTAINER_ID" -- bash -c 'echo "dashboard.listeners.http = 18083" >> /etc/emqx/emqx.conf'
+fi
 
-listeners.ws.default.bind = 0.0.0.0:8083
-listeners.ws.default.mqtt_path = /mqtt
-listeners.ws.default.max_connections = 10240
-
-dashboard.listeners.http.bind = 18083
-dashboard.default_username = admin
-dashboard.default_password = public
-
-authentication.1.mechanism = password_based
-authentication.1.backend = built_in_database
-authentication.1.user_id_type = username
-
-authorization.no_match = allow
-
-log.file.default.level = warning
-log.file.default.file = /var/log/emqx/emqx.log
-EOF
+# Validate the config after creation
+print_info "Validating EMQX configuration syntax..."
+if ! pct exec "$CONTAINER_ID" -- emqx chkconfig 2>/dev/null; then
+    print_warning "Config validation failed, trying ultra-minimal config..."
+    
+    # Last resort - create the simplest possible config
+    pct exec "$CONTAINER_ID" -- bash -c 'echo "listeners.tcp.default = 1883" > /etc/emqx/emqx.conf'
+    pct exec "$CONTAINER_ID" -- bash -c 'echo "listeners.ws.default = 8083" >> /etc/emqx/emqx.conf'
+    pct exec "$CONTAINER_ID" -- bash -c 'echo "dashboard.listeners.http = 18083" >> /etc/emqx/emqx.conf'
+    
+    # Test again
+    if pct exec "$CONTAINER_ID" -- emqx chkconfig 2>/dev/null; then
+        print_status "Ultra-minimal config validated successfully"
+    else
+        print_error "Even minimal config failed - may need manual EMQX setup"
+    fi
+fi
 
 # For EMQX 5.x, we'll configure users via API after startup instead of config file
 print_info "EMQX user configuration will be done via API after startup"
