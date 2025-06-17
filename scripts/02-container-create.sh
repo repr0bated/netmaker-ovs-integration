@@ -54,27 +54,17 @@ create_container() {
         template_name="$debian12_template"
         print_info "Found Debian 12 template: $template_name"
         
-        # Download if not already available
-        if ! pveam list local 2>/dev/null | grep -q "$template_name"; then
-            print_info "Downloading template..."
-            if ! pveam download local "$template_name" 2>/dev/null; then
-                # Try other storage pools
-                local storage=$(pvesm status | grep -E "^[a-zA-Z]" | grep -v "local" | head -1 | awk '{print $1}' || echo "")
-                if [[ -n "$storage" ]]; then
-                    pveam download "$storage" "$template_name" || {
-                        print_error "Failed to download template"
-                        exit 1
-                    }
-                    template_ref="$storage:vztmpl/$template_name"
-                else
-                    print_error "No available storage for template download"
-                    exit 1
-                fi
+        # Download if not already available (use local-btrfs only)
+        if ! pveam list local-btrfs 2>/dev/null | grep -q "$template_name"; then
+            print_info "Downloading template to local-btrfs..."
+            if pveam download local-btrfs "$template_name" 2>/dev/null; then
+                template_ref="local-btrfs:vztmpl/$template_name"
             else
-                template_ref="local:vztmpl/$template_name"
+                print_error "Failed to download template to local-btrfs storage"
+                exit 1
             fi
         else
-            template_ref="local:vztmpl/$template_name"
+            template_ref="local-btrfs:vztmpl/$template_name"
         fi
     else
         print_error "No Debian 12 templates available"

@@ -150,10 +150,10 @@ check_templates() {
     fi
     
     # Check if template is already downloaded
-    if pveam list local 2>/dev/null | grep -q "$DEFAULT_TEMPLATE"; then
-        print_status "Template $DEFAULT_TEMPLATE is already available locally"
+    if pveam list local-btrfs 2>/dev/null | grep -q "$DEFAULT_TEMPLATE"; then
+        print_status "Template $DEFAULT_TEMPLATE is already available on local-btrfs"
     else
-        print_warning "Template $DEFAULT_TEMPLATE needs to be downloaded"
+        print_warning "Template $DEFAULT_TEMPLATE needs to be downloaded to local-btrfs"
     fi
 }
 
@@ -272,41 +272,29 @@ download_template() {
     print_header "Preparing LXC Template"
     echo "────────────────────────────────────────────────────────────────────────"
     
-    # Check if template is already available locally
-    if pveam list local 2>/dev/null | grep -q "$TEMPLATE"; then
-        print_status "Template $TEMPLATE is already available"
+    # Check if template is already available on local-btrfs
+    if pveam list local-btrfs 2>/dev/null | grep -q "$TEMPLATE"; then
+        print_status "Template $TEMPLATE is already available on local-btrfs"
+        TEMPLATE_WITH_STORAGE="local-btrfs:vztmpl/$TEMPLATE"
         return 0
     fi
     
     print_info "Downloading template: $TEMPLATE"
     
-    # Find appropriate storage for template download
-    local storage_pool="local"
+    # Use only local-btrfs storage for template download
+    local storage_pool="local-btrfs"
     
-    # Try to download to local storage first
+    # Download template to local-btrfs storage only
     if pveam download "$storage_pool" "$TEMPLATE" 2>/dev/null; then
         print_status "Template downloaded successfully to $storage_pool"
+        TEMPLATE_WITH_STORAGE="$storage_pool:vztmpl/$TEMPLATE"
         return 0
+    else
+        print_error "Failed to download template $TEMPLATE to $storage_pool"
+        print_info "Checking if local-btrfs storage is available:"
+        pvesm status | grep "local-btrfs" || echo "  local-btrfs storage not found"
+        ask_continue "Failed to download template to local-btrfs storage"
     fi
-    
-    # If local fails, try other storage pools
-    print_warning "Download to 'local' failed, trying other storage pools..."
-    local available_storages=$(pvesm status | grep -E "^[a-zA-Z]" | awk '{print $1}' | grep -v "Storage")
-    
-    for storage in $available_storages; do
-        print_info "Trying storage pool: $storage"
-        if pveam download "$storage" "$TEMPLATE" 2>/dev/null; then
-            print_status "Template downloaded successfully to $storage"
-            # Update template reference to include storage
-            TEMPLATE_WITH_STORAGE="$storage:vztmpl/$TEMPLATE"
-            return 0
-        fi
-    done
-    
-    print_error "Failed to download template $TEMPLATE to any storage pool"
-    print_info "Available storage pools:"
-    pvesm status | grep -E "^[a-zA-Z]" || echo "  No storage pools found"
-    ask_continue "Failed to download template"
 }
 
 # Destroy existing container if requested
