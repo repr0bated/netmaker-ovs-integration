@@ -383,7 +383,8 @@ create_container() {
     create_cmd="$create_cmd --hostname $HOSTNAME"
     create_cmd="$create_cmd --memory $MEMORY"
     create_cmd="$create_cmd --cores $CORES"
-    create_cmd="$create_cmd --rootfs $STORAGE:$DISK,mountoptions=compress=zstd"
+    # Try alternative rootfs format for better compatibility
+    create_cmd="$create_cmd --storage $STORAGE --rootfs $DISK,mountoptions=compress=zstd"
     
     # Network configuration - private network always on eth0
     create_cmd="$create_cmd --net0 name=eth0,bridge=$BRIDGE,ip=$CONTAINER_IP,gw=$GATEWAY"
