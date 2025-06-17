@@ -62,38 +62,40 @@ else
     print_info "EMQX service start failed, creating custom config..."
 fi
 
-# Create simple key-value EMQX configuration 
+# Create simple key-value EMQX configuration line by line
 print_info "Creating simple EMQX configuration..."
-pct exec "$CONTAINER_ID" -- bash -c 'cat > /etc/emqx/emqx.conf << "EOF"
-### EMQX main configuration for GhostBridge
+pct exec "$CONTAINER_ID" -- bash -c 'echo "### EMQX main configuration for GhostBridge" > /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "## Node settings" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "node.name = \"emqx@127.0.0.1\"" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "node.cookie = \"secret-cookie\"" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "node.data_dir = \"/var/lib/emqx\"" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "## Dashboard settings" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "listener.dashboard = 18083" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "listener.dashboard_external = 8081" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "## MQTT listeners" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "listener.tcp = 1883" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "listener.ssl = 8883" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "## Allow anonymous clients" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "allow_anonymous = true" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "## Access control" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "acl_nomatch = allow" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "acl_file = \"etc/acl.conf\"" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "## Logging" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "log.file = emqx.log" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "log.console = console" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "## Broker sys topics" >> /etc/emqx/emqx.conf'
+pct exec "$CONTAINER_ID" -- bash -c 'echo "broker.sys_interval = 1m" >> /etc/emqx/emqx.conf'
 
-## Node settings
-node.name = "emqx@127.0.0.1"
-node.cookie = "secret-cookie"
-node.data_dir = "/var/lib/emqx"
-
-## Dashboard settings
-listener.dashboard = 18083
-listener.dashboard_external = 8081
-
-## MQTT listeners
-listener.tcp = 1883
-listener.ssl = 8883
-
-## Allow anonymous clients
-allow_anonymous = true
-
-## Access control
-acl_nomatch = allow
-acl_file = "etc/acl.conf"
-
-## Logging
-log.file = emqx.log
-log.console = console
-
-## Broker sys topics
-broker.sys_interval = 1m
-EOF'
+# Verify the config was written correctly
+print_info "Verifying config file was written correctly..."
+pct exec "$CONTAINER_ID" -- cat /etc/emqx/emqx.conf
 
 # Test the minimal config
 print_info "Testing minimal configuration..."
