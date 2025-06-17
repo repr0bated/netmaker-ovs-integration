@@ -158,12 +158,10 @@ reset_to_proxmox_defaults() {
     print_info "Resetting network configuration to clean Proxmox defaults..."
     print_info "This ensures containers can be created and have basic connectivity"
     
-    # Check if simple network reset script exists
+    # Check if simple network reset script exists and if interactive mode
     if [[ -f "$SCRIPT_DIR/simple-network-reset.sh" ]]; then
-        print_question "Run network reset to Proxmox defaults? [Y/n]: "
-        read -r reset_network
-        if [[ ! "$reset_network" =~ ^[Nn]$ ]]; then
-            print_info "Running simple network reset..."
+        if [[ "${CONFIG[interactive]}" == "false" ]]; then
+            print_info "Non-interactive mode: Running network reset automatically..."
             if bash "$SCRIPT_DIR/simple-network-reset.sh"; then
                 print_status "✅ Network reset to Proxmox defaults completed"
                 print_info "Network is now: eth0 DHCP + vmbr0 Linux bridge"
@@ -171,7 +169,19 @@ reset_to_proxmox_defaults() {
                 print_warning "Network reset had issues but continuing..."
             fi
         else
-            print_info "Skipping network reset - using current configuration"
+            print_question "Run network reset to Proxmox defaults? [Y/n]: "
+            read -r reset_network
+            if [[ ! "$reset_network" =~ ^[Nn]$ ]]; then
+                print_info "Running simple network reset..."
+                if bash "$SCRIPT_DIR/simple-network-reset.sh"; then
+                    print_status "✅ Network reset to Proxmox defaults completed"
+                    print_info "Network is now: eth0 DHCP + vmbr0 Linux bridge"
+                else
+                    print_warning "Network reset had issues but continuing..."
+                fi
+            else
+                print_info "Skipping network reset - using current configuration"
+            fi
         fi
     else
         print_warning "Simple network reset script not found"
@@ -203,19 +213,29 @@ deploy_lxc_container() {
         
         if [[ -n "$latest_container" ]]; then
             print_info "Detected latest container: $latest_container"
-            print_question "Use container ID $latest_container? [Y/n]: "
-            read -r use_detected
-            if [[ ! "$use_detected" =~ ^[Nn]$ ]]; then
+            if [[ "${CONFIG[interactive]}" == "false" ]]; then
                 CONFIG[container_id]="$latest_container"
+                print_info "Non-interactive mode: Using container ID $latest_container"
+            else
+                print_question "Use container ID $latest_container? [Y/n]: "
+                read -r use_detected
+                if [[ ! "$use_detected" =~ ^[Nn]$ ]]; then
+                    CONFIG[container_id]="$latest_container"
+                else
+                    print_question "Enter the container ID that was created: "
+                    read -r created_container_id
+                    CONFIG[container_id]="$created_container_id"
+                fi
+            fi
+        else
+            if [[ "${CONFIG[interactive]}" == "false" ]]; then
+                CONFIG[container_id]="100"  # Default fallback
+                print_info "Non-interactive mode: Using default container ID 100"
             else
                 print_question "Enter the container ID that was created: "
                 read -r created_container_id
                 CONFIG[container_id]="$created_container_id"
             fi
-        else
-            print_question "Enter the container ID that was created: "
-            read -r created_container_id
-            CONFIG[container_id]="$created_container_id"
         fi
         
         # Get container config to extract IP
@@ -226,9 +246,14 @@ deploy_lxc_container() {
             CONFIG[container_ip]="$detected_ip"
             print_info "Detected container IP: $detected_ip"
         else
-            print_question "Enter the container IP: "
-            read -r created_container_ip
-            CONFIG[container_ip]="$created_container_ip"
+            if [[ "${CONFIG[interactive]}" == "false" ]]; then
+                CONFIG[container_ip]="10.0.0.151"  # Default fallback
+                print_info "Non-interactive mode: Using default container IP 10.0.0.151"
+            else
+                print_question "Enter the container IP: "
+                read -r created_container_ip
+                CONFIG[container_ip]="$created_container_ip"
+            fi
         fi
         
         print_info "Using container ID: ${CONFIG[container_id]}"
@@ -290,11 +315,15 @@ deploy_container_services() {
     print_info "Testing container connectivity..."
     if ! pct exec "${CONFIG[container_id]}" -- ping -c 2 8.8.8.8 >/dev/null 2>&1; then
         print_warning "Container network connectivity test failed"
-        print_question "Continue with installation anyway? [y/N]: "
-        read -r continue_install
-        if [[ ! "$continue_install" =~ ^[Yy]$ ]]; then
-            print_info "Skipping container service installation"
-            return 0
+        if [[ "${CONFIG[interactive]}" == "false" ]]; then
+            print_info "Non-interactive mode: Continuing with installation anyway"
+        else
+            print_question "Continue with installation anyway? [y/N]: "
+            read -r continue_install
+            if [[ ! "$continue_install" =~ ^[Yy]$ ]]; then
+                print_info "Skipping container service installation"
+                return 0
+            fi
         fi
     else
         print_status "Container has internet connectivity"
@@ -376,18 +405,14 @@ install_netmaker_in_container() {
 configure_services_in_container() {
     print_info "Configuring Mosquitto..."
     
+    # Create necessary directories first
+    pct exec "${CONFIG[container_id]}" -- mkdir -p /var/lib/mosquitto /var/log/mosquitto
+    pct exec "${CONFIG[container_id]}" -- chown mosquitto:mosquitto /var/lib/mosquitto /var/log/mosquitto
+    
     # Create Mosquitto configuration
     pct exec "${CONFIG[container_id]}" -- bash -c 'cat > /etc/mosquitto/mosquitto.conf << "MQTT_EOF"
 # GhostBridge Mosquitto Configuration
-listener 1883
-bind_address 0.0.0.0
-protocol mqtt
-allow_anonymous true
-
-listener 9001
-bind_address 0.0.0.0
-protocol websockets
-allow_anonymous true
+pid_file /run/mosquitto/mosquitto.pid
 
 persistence true
 persistence_location /var/lib/mosquitto/
@@ -399,12 +424,31 @@ log_type notice
 log_type information
 log_timestamp true
 
+# Default listener (disable)
+port 0
+
+# MQTT TCP Listener
+listener 1883 0.0.0.0
+allow_anonymous true
+
+# MQTT WebSocket Listener  
+listener 9001 0.0.0.0
+protocol websockets
+allow_anonymous true
+
+# Connection settings
 max_packet_size 1048576
 keepalive_interval 60
+max_keepalive 120
 MQTT_EOF'
     
-    # Set permissions
-    pct exec "${CONFIG[container_id]}" -- chown mosquitto:mosquitto /var/lib/mosquitto /var/log/mosquitto || true
+    # Test Mosquitto configuration
+    print_info "Testing Mosquitto configuration..."
+    if pct exec "${CONFIG[container_id]}" -- mosquitto -c /etc/mosquitto/mosquitto.conf -t; then
+        print_status "Mosquitto configuration is valid"
+    else
+        print_warning "Mosquitto configuration test failed - proceeding anyway"
+    fi
     
     print_info "Configuring Netmaker..."
     
@@ -473,10 +517,23 @@ SERVICE_EOF'
     
     # Start services
     print_info "Starting services..."
+    
+    # Start Mosquitto with detailed logging
+    print_info "Starting Mosquitto..."
     if pct exec "${CONFIG[container_id]}" -- systemctl start mosquitto; then
         print_status "Mosquitto started"
+        
+        # Verify Mosquitto is actually running
+        sleep 2
+        if pct exec "${CONFIG[container_id]}" -- systemctl is-active --quiet mosquitto; then
+            print_status "Mosquitto is running"
+        else
+            print_warning "Mosquitto service not active, checking logs..."
+            pct exec "${CONFIG[container_id]}" -- journalctl -u mosquitto --no-pager -n 10 || true
+        fi
     else
-        print_warning "Mosquitto start failed"
+        print_warning "Mosquitto start failed, checking logs..."
+        pct exec "${CONFIG[container_id]}" -- journalctl -u mosquitto --no-pager -n 10 || true
     fi
     
     if pct exec "${CONFIG[container_id]}" -- systemctl start netmaker; then

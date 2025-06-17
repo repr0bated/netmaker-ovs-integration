@@ -83,7 +83,7 @@ create_container() {
     
     # Build container creation command
     local create_cmd="pct create $CONTAINER_ID $template_ref"
-    create_cmd="$create_cmd --hostname ghostbridge --memory 2048 --cores 2 --storage local-btrfs --rootfs local-btrfs:8"
+    create_cmd="$create_cmd --hostname ghostbridge --memory 2048 --cores 2 --storage local-btrfs --rootfs local-btrfs:8,mountoptions=compress=zstd"
     create_cmd="$create_cmd --net0 name=eth0,bridge=$BRIDGE_NAME,ip=$CONTAINER_IP/24,gw=10.0.0.1"
     
     # Add dual IP interface if enabled
