@@ -62,51 +62,36 @@ else
     print_info "EMQX service start failed, creating custom config..."
 fi
 
-# Create config using HOCON format to avoid period issues in key names
-print_info "Creating EMQX configuration using HOCON format..."
+# Create simple key-value EMQX configuration 
+print_info "Creating simple EMQX configuration..."
 pct exec "$CONTAINER_ID" -- bash -c 'cat > /etc/emqx/emqx.conf << "EOF"
-node {
-  name = "emqx@127.0.0.1"
-  cookie = "ghostbridge_cluster"
-}
+### EMQX main configuration for GhostBridge
 
-listeners {
-  tcp {
-    default {
-      bind = "0.0.0.0:1883"
-      max_connections = 10240
-    }
-  }
-  ws {
-    default {
-      bind = "0.0.0.0:8083"
-      mqtt_path = "/mqtt"
-      max_connections = 10240
-    }
-  }
-}
+## Node settings
+node.name = "emqx@127.0.0.1"
+node.cookie = "secret-cookie"
 
-dashboard {
-  listeners {
-    http {
-      bind = "18083"
-    }
-  }
-  default_username = "admin"
-  default_password = "public"
-}
+## Dashboard settings
+listener.dashboard = 18083
+listener.dashboard_external = 8081
 
-authentication = [
-  {
-    mechanism = "password_based"
-    backend = "built_in_database"
-    user_id_type = "username"
-  }
-]
+## MQTT listeners
+listener.tcp = 1883
+listener.ssl = 8883
 
-authorization {
-  no_match = "allow"
-}
+## Allow anonymous clients
+allow_anonymous = true
+
+## Access control
+acl_nomatch = allow
+acl_file = "etc/acl.conf"
+
+## Logging
+log.file = emqx.log
+log.console = console
+
+## Broker sys topics
+broker.sys_interval = 1m
 EOF'
 
 # Test the minimal config
