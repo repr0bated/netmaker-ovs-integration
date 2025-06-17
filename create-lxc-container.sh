@@ -60,6 +60,19 @@ print_question() {
     echo -e "${PURPLE}[?]${NC} $1"
 }
 
+# Ask user if they want to continue after failure
+ask_continue() {
+    local message="$1"
+    print_warning "$message"
+    print_question "Do you want to continue anyway? [y/N]: "
+    read -r response
+    if [[ ! "$response" =~ ^[Yy]$ ]]; then
+        print_info "Script terminated by user"
+        exit 1
+    fi
+    print_info "Continuing as requested..."
+}
+
 # Display banner
 show_banner() {
     clear
@@ -84,16 +97,14 @@ EOF
 # Check if running as root on Proxmox
 check_root() {
     if [[ $EUID -ne 0 ]]; then
-        print_error "This script must be run as root on the Proxmox host"
-        exit 1
+        ask_continue "This script must be run as root on the Proxmox host"
     fi
 }
 
 # Check if running on Proxmox host
 check_proxmox() {
     if [[ ! -f /etc/pve/local/pve-ssl.pem ]]; then
-        print_error "This script must be run on a Proxmox host"
-        exit 1
+        ask_continue "This script must be run on a Proxmox host"
     fi
     
     local pve_version=$(pveversion 2>/dev/null | cut -d'/' -f2 || echo "unknown")
@@ -132,8 +143,7 @@ check_templates() {
                 print_warning "Using fallback template: $DEFAULT_TEMPLATE"
             fi
         else
-            print_error "No suitable Debian templates found"
-            exit 1
+            ask_continue "No suitable Debian templates found"
         fi
     fi
     
@@ -163,8 +173,7 @@ get_configuration() {
         if [[ "$destroy_existing" =~ ^[Yy]$ ]]; then
             DESTROY_EXISTING=true
         else
-            print_error "Please choose a different container ID"
-            exit 1
+            ask_continue "Please choose a different container ID"
         fi
     else
         DESTROY_EXISTING=false
@@ -289,7 +298,7 @@ download_template() {
     print_error "Failed to download template $TEMPLATE to any storage pool"
     print_info "Available storage pools:"
     pvesm status | grep -E "^[a-zA-Z]" || echo "  No storage pools found"
-    exit 1
+    ask_continue "Failed to download template"
 }
 
 # Destroy existing container if requested
@@ -315,8 +324,7 @@ destroy_existing_container() {
         print_status "Container $CONTAINER_ID destroyed"
         sleep 2
     else
-        print_error "Failed to destroy container $CONTAINER_ID"
-        exit 1
+        ask_continue "Failed to destroy container $CONTAINER_ID"
     fi
 }
 
@@ -374,8 +382,7 @@ create_container() {
     if [[ $? -eq 0 ]]; then
         print_status "Container $CONTAINER_ID created successfully"
     else
-        print_error "Failed to create container"
-        exit 1
+        ask_continue "Failed to create container"
     fi
 }
 
@@ -446,7 +453,7 @@ install_netmaker() {
         x86_64) go_arch="amd64" ;;
         aarch64|arm64) go_arch="arm64" ;;
         armv7l) go_arch="arm" ;;
-        *) print_error "Unsupported architecture: $arch"; exit 1 ;;
+        *) ask_continue "Unsupported architecture: $arch" ;;
     esac
     
     # Get latest version
@@ -510,8 +517,7 @@ MQTT_EOF
     if mosquitto -c /etc/mosquitto/mosquitto.conf -t; then
         print_status "Mosquitto configuration is valid"
     else
-        print_error "Mosquitto configuration test failed"
-        exit 1
+        ask_continue "Mosquitto configuration test failed"
     fi
     
     # Enable and start mosquitto
@@ -523,7 +529,7 @@ MQTT_EOF
     else
         print_error "Mosquitto failed to start"
         journalctl -u mosquitto --no-pager -n 10
-        exit 1
+        ask_continue "Mosquitto service failed to start"
     fi
 }
 
@@ -656,7 +662,7 @@ start_services() {
     else
         print_error "Netmaker service failed to start"
         journalctl -u netmaker --no-pager -n 20
-        exit 1
+        ask_continue "Netmaker service failed to start"
     fi
 }
 
