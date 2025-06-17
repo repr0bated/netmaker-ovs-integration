@@ -1,37 +1,32 @@
 #!/bin/bash
 set -e
 
-echo "[*] Fetching latest Go version info..."
+# Get version (e.g. go1.22.3)
+VERSION=$(curl -s https://go.dev/VERSION?m=text | head -n1)
+TARBALL="go${VERSION}.linux-amd64.tar.gz"
+URL="https://dl.google.com/go/${TARBALL}"
 
-GO_JSON=$(curl -s https://go.dev/dl/?mode=json)
-GO_URL=$(echo "$GO_JSON" | grep -Eo 'https://go.dev/dl/go[0-9.]+\.linux-amd64\.tar\.gz' | head -n1)
-GO_TARBALL=$(basename "$GO_URL")
+echo "[*] Fetching Go version ${VERSION}..."
+curl -LO "$URL"
 
-echo "[*] Downloading $GO_TARBALL ..."
-curl -LO "$GO_URL"
-
-echo "[*] Removing previous Go installation..."
+echo "[*] Removing old Go installation..."
 sudo rm -rf /usr/local/go
 
-echo "[*] Extracting Go to /usr/local ..."
-sudo tar -C /usr/local -xzf "$GO_TARBALL"
+echo "[*] Extracting to /usr/local ..."
+sudo tar -C /usr/local -xzf "$TARBALL"
 
 echo "[*] Cleaning up..."
-rm -f "$GO_TARBALL"
+rm -f "$TARBALL"
 
 # Add to PATH if missing
 PROFILE="$HOME/.bashrc"
-if [ -n "$ZSH_VERSION" ]; then
-  PROFILE="$HOME/.zshrc"
-fi
-
+if [ -n "$ZSH_VERSION" ]; then PROFILE="$HOME/.zshrc"; fi
 if ! grep -q '/usr/local/go/bin' "$PROFILE"; then
   echo 'export PATH=$PATH:/usr/local/go/bin' >> "$PROFILE"
-  echo "[*] Added Go to PATH in $PROFILE"
+  echo "[*] PATH updated in $PROFILE"
 fi
 
-echo "[*] Reloading profile..."
+echo "[*] Sourcing $PROFILE..."
 source "$PROFILE" || true
 
-echo "[*] Installed Go version:"
-go version
+echo "[*] Installed:" $(go version)
